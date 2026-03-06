@@ -5,10 +5,10 @@
 ### Meshroom Plugin for LINO_UniPS
 
 <p>
-Integrate <a href="https://github.com/houyuanchen111/LINO_UniPS">LINO_UniPS</a> photometric stereo normal estimation directly into your <a href="https://github.com/alicevision/Meshroom">Meshroom</a> photogrammetry pipeline.
+Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO_UniPS</a> photometric stereo normal estimation directly into your <a href="https://github.com/alicevision/Meshroom">Meshroom</a> photogrammetry pipeline.
 </p>
 
-<a href="https://github.com/houyuanchen111/LINO_UniPS"><img src="https://img.shields.io/badge/Core-LINO__UniPS-green" alt="LINO_UniPS" height="25"></a>
+<a href="https://github.com/meshroomHubWarehouse/LINO_UniPS"><img src="https://img.shields.io/badge/Core-LINO__UniPS-green" alt="LINO_UniPS" height="25"></a>
 
 </div>
 
@@ -44,7 +44,7 @@ git clone https://github.com/meshroomHub/mrLINOUniPS.git
 ### 2. Clone the LINO_UniPS core code
 
 ```bash
-git clone https://github.com/houyuanchen111/LINO_UniPS.git
+git clone https://github.com/meshroomHubWarehouse/LINO_UniPS.git
 ```
 
 > **Note:** for SfMData JSON support, use the `feat/meshroom-plugin` branch.
@@ -170,7 +170,7 @@ This work is supported by [**DOPAMIn**](https://www.cnrsinnovation.com/actualite
 
 | Project | Description |
 |---------|-------------|
-| [LINO_UniPS](https://github.com/houyuanchen111/LINO_UniPS) | Light-invariant normal estimator for universal photometric stereo |
+| [LINO_UniPS](https://github.com/meshroomHubWarehouse/LINO_UniPS) | Light-invariant normal estimator for universal photometric stereo |
 | [mrSDMUniPS](https://github.com/meshroomHub/mrSDMUniPS) | Meshroom plugin for SDM-UniPS photometric stereo |
 | [mrOpenRNb](https://github.com/meshroomHub/mrOpenRNb) | Meshroom plugin for neural surface reconstruction from normals |
 
