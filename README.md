@@ -26,8 +26,6 @@ Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO_UniP
 - **CUDA** 12.x + NVIDIA GPU (ampere or newer recommended for bfloat16 support)
 - **[Meshroom](https://github.com/alicevision/Meshroom)** 2025+ (develop branch)
 
-Full dependency list: [`requirements.txt`](requirements.txt)
-
 ---
 
 ## Quick Start
@@ -39,39 +37,17 @@ Full dependency list: [`requirements.txt`](requirements.txt)
 ```bash
 cd /path/to/your/plugins
 git clone https://github.com/meshroomHub/mrLINOUniPS.git
-```
-
-### 2. Clone the LINO_UniPS core code
-
-```bash
-git clone https://github.com/meshroomHubWarehouse/LINO_UniPS.git
-```
-
-> **Note:** for SfMData JSON support, use the `feat/meshroom-plugin` branch.
-
-### 3. Set up the virtual environment
-
-Meshroom looks for a folder named **`venv`** at the plugin root and uses its Python interpreter to run the node. You have two options:
-
-#### Option A: Symlink an existing venv
-
-If you already have a working virtual environment from the LINO_UniPS repository, you can simply symlink it:
-
-```bash
 cd mrLINOUniPS
-ln -s /absolute/path/to/LINO_UniPS/.venv venv
 ```
 
-#### Option B: Create a fresh venv
+### 2. Set up the virtual environment
+
+Meshroom looks for a folder named **`venv`** at the plugin root.
 
 ```bash
-cd mrLINOUniPS
-
-# Create the venv (must be named "venv", not ".venv")
 python3 -m venv venv
 source venv/bin/activate
 
-# Upgrade pip and install dependencies
 pip install --upgrade pip
 pip install torch torchvision
 pip install -r requirements.txt
@@ -79,59 +55,30 @@ pip install -r requirements.txt
 deactivate
 ```
 
-### 4. Configure the plugin
+This installs LINO_UniPS and all its dependencies automatically via pip.
 
-Edit `meshroom/config.json` to point to your LINO_UniPS clone:
-
-```json
-[
-    {
-        "key": "LINO_UNIPS_PATH",
-        "type": "path",
-        "value": "/absolute/path/to/LINO_UniPS"
-    }
-]
-```
-
-### 5. Download weights
-
-Download the pre-trained model weights (`.pth` file) and place them in the LINO_UniPS code directory or in a `weights/` subdirectory. The plugin will auto-detect `.pth` files.
-
-Alternatively, set the `LINO_MODEL_URL` environment variable and the model will be downloaded automatically from HuggingFace on first run.
-
-### 6. Register the plugin in Meshroom
-
-Set the `MESHROOM_PLUGINS_PATH` environment variable:
+### 3. Download pretrained weights
 
 ```bash
-# Linux
+bash download_weights.sh
+```
+
+This downloads the pretrained model (~338 MB) from HuggingFace into `weights/`:
+
+```
+weights/
+└── lino.pth
+```
+
+The plugin auto-detects this file. No config.json needed.
+
+### 4. Register the plugin in Meshroom
+
+```bash
 export MESHROOM_PLUGINS_PATH=/path/to/your/plugins/mrLINOUniPS:$MESHROOM_PLUGINS_PATH
-
-# Windows
-set MESHROOM_PLUGINS_PATH=C:\path\to\mrLINOUniPS;%MESHROOM_PLUGINS_PATH%
 ```
 
-Launch Meshroom: the **LINOUniPS** node appears under the **Photometric Stereo** category.
-
----
-
-## Plugin Structure
-
-```
-mrLINOUniPS/
-├── meshroom/
-│   ├── config.json                # Plugin configuration (LINO_UNIPS_PATH)
-│   └── LINOUniPS/
-│       ├── __init__.py
-│       └── LINOUniPS.py           # Meshroom node definition
-├── venv/                          # Python virtual environment (or symlink, see step 3)
-├── requirements.txt               # Python dependencies
-└── README.md
-```
-
-For more details on how Meshroom plugins work, see:
-- [Meshroom Plugin Install Guide](https://github.com/alicevision/Meshroom/blob/develop/INSTALL_PLUGINS.md)
-- [mrHelloWorld](https://github.com/meshroomHub/mrHelloWorld): step-by-step tutorials for building Meshroom plugins
+Launch Meshroom: the **LINOUniPS** node appears under **Photometric Stereo**.
 
 ---
 
@@ -145,16 +92,57 @@ For more details on how Meshroom plugins work, see:
 | `maskFolder` | Mask Folder | Folder with mask PNGs named by poseId or viewId |
 | `downscale` | Downscale Factor | Integer downscale factor for input images (1-8, default: 1) |
 | `nbImages` | Number of Images | Number of lighting images per pose (-1 = all) |
-| `taskName` | Task Name | Model task configuration: `Real` or `DiLiGenT` |
 | `useGpu` | Use GPU | Use GPU for inference (default: true) |
-| `linoUniPsPath` | LINO_UniPS Path | Path to LINO_UniPS code (set via `config.json`) |
 
 ### Outputs
 
 | Parameter | Description |
 |-----------|-------------|
 | `outputFolder` | Folder containing normal map PNGs |
-| `outputJson` | JSON file mapping poseIds to normal map paths |
+| `outputSfmDataNormal` | SfMData file referencing normal maps |
+
+---
+
+## Advanced: Developer Setup
+
+If you prefer to work from a local LINO_UniPS clone instead of pip install:
+
+1. Clone the repo: `git clone -b meshroom https://github.com/meshroomHubWarehouse/LINO_UniPS.git`
+2. Edit `meshroom/config.json`:
+   ```json
+   [
+       {"key": "LINO_UNIPS_PATH", "type": "path", "value": "/path/to/LINO_UniPS"}
+   ]
+   ```
+3. Place `lino.pth` in the LINO_UniPS directory or its `weights/` subdirectory.
+
+The node searches for weights in this order:
+1. Plugin `weights/` directory
+2. LINO_UniPS code directory (from config.json)
+3. Torch hub cache (`~/.cache/torch/hub/checkpoints/lino.pth`)
+
+---
+
+## Plugin Structure
+
+```
+mrLINOUniPS/
+├── meshroom/
+│   ├── config.json                # Plugin configuration (optional for dev)
+│   └── LINOUniPS/
+│       ├── __init__.py
+│       └── LINOUniPS.py           # Meshroom node definition
+├── weights/                       # Downloaded model weights
+│   └── lino.pth
+├── venv/                          # Python virtual environment
+├── download_weights.sh            # Weight download script
+├── requirements.txt               # Python dependencies (pip install from git)
+└── README.md
+```
+
+For more details on how Meshroom plugins work, see:
+- [Meshroom Plugin Install Guide](https://github.com/alicevision/Meshroom/blob/develop/INSTALL_PLUGINS.md)
+- [mrHelloWorld](https://github.com/meshroomHub/mrHelloWorld): step-by-step tutorials for building Meshroom plugins
 
 ---
 

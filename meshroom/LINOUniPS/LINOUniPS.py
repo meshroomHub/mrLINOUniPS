@@ -225,23 +225,27 @@ class LINOUniPS(desc.Node):
             output_folder = chunk.node.outputFolder.value
             os.makedirs(output_folder, exist_ok=True)
 
-            # Find weights file
+            # Find weights file: plugin dir > algo repo > torch cache
             weights_path = None
-            for candidate in ["lino_unips.pth", "lino.pth", "model.pth"]:
-                p = os.path.join(lino_path, candidate)
-                if os.path.isfile(p):
-                    weights_path = p
+            plugin_weights = os.path.abspath(os.path.join(
+                os.path.dirname(__file__), '..', '..', 'weights'))
+            search_dirs = [plugin_weights, lino_path]
+            for search_dir in search_dirs:
+                for candidate in ["lino.pth", "lino_unips.pth", "model.pth"]:
+                    p = os.path.join(search_dir, candidate)
+                    if os.path.isfile(p):
+                        weights_path = p
+                        break
+                if not weights_path:
+                    w_dir = os.path.join(search_dir, "weights")
+                    if os.path.isdir(w_dir):
+                        for f in os.listdir(w_dir):
+                            if f.endswith(".pth"):
+                                weights_path = os.path.join(w_dir, f)
+                                break
+                if weights_path:
                     break
             if not weights_path:
-                # Search in weights/ subdirectory
-                weights_dir = os.path.join(lino_path, "weights")
-                if os.path.isdir(weights_dir):
-                    for f in os.listdir(weights_dir):
-                        if f.endswith(".pth"):
-                            weights_path = os.path.join(weights_dir, f)
-                            break
-            if not weights_path:
-                # Search in torch hub cache
                 torch_cache = os.path.join(
                     os.path.expanduser("~"),
                     ".cache", "torch", "hub", "checkpoints", "lino.pth")
