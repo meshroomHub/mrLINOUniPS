@@ -1,8 +1,1 @@
-torch
-torchvision
-opencv-python
-numpy
-pytorch_lightning
-diffusers
-transformers
-xformers
+lino_unips @ git+https://github.com/meshroomHubWarehouse/LINO_UniPS.git@meshroom

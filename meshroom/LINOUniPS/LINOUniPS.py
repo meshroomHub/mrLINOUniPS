@@ -192,23 +192,27 @@ class LINOUniPS(desc.Node):
                     "LINO_UNIPS_PATH is empty or not a valid directory. "
                     "Set it in config.json. Got: '{}'".format(lino_path))
 
-            # Import LINO_UniPS modules upfront, then restore sys.path
+            # Import LINO_UniPS modules (pip install or sys.path fallback)
             import sys
-            original_path = sys.path[:]
-            sys.path.insert(0, lino_path)
             try:
                 from inference_sfm import run_sfm_inference, load_sfm
-                # Pre-import hubconf and its dependencies so they are
-                # cached in sys.modules (run_sfm_inference imports them lazily)
                 import hubconf
                 import src.models
                 import src.data
-            except ImportError as e:
-                raise RuntimeError(
-                    "Failed to import from LINO_UniPS at {}: {}".format(
-                        lino_path, e))
-            finally:
-                sys.path[:] = original_path
+            except ImportError:
+                original_path = sys.path[:]
+                sys.path.insert(0, lino_path)
+                try:
+                    from inference_sfm import run_sfm_inference, load_sfm
+                    import hubconf
+                    import src.models
+                    import src.data
+                except ImportError as e:
+                    raise RuntimeError(
+                        "Failed to import from LINO_UniPS at {}: {}".format(
+                            lino_path, e))
+                finally:
+                    sys.path[:] = original_path
 
             # Device selection
             import torch
