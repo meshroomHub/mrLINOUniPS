@@ -105,6 +105,14 @@ class LINOUniPS(desc.Node):
             value="{nodeCacheFolder}/normalMaps.sfm",
         ),
         desc.File(
+            name="normalMaps",
+            label="Normal Maps",
+            description="Normal map images.",
+            semantic="image",
+            value="{nodeCacheFolder}/<VIEW_ID>.png",
+            group="",
+        ),
+        desc.File(
             name="outputMaskFolder",
             label="Mask Folder",
             description="Folder with masks extracted from alpha channels.",
