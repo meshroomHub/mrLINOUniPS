@@ -73,6 +73,15 @@ class LINOUniPS(desc.Node):
             value=True,
             invalidate=False,
         ),
+        desc.ChoiceParam(
+            name="outputFormat",
+            label="Output Format",
+            description="Output image format: png16 (16-bit PNG) or "
+                        "exr (float32 EXR for true float normals).",
+            values=["png16", "exr"],
+            value="png16",
+            exclusive=True,
+        ),
         desc.File(
             name="linoUniPsPath",
             label="LINO_UniPS Path",
@@ -109,7 +118,8 @@ class LINOUniPS(desc.Node):
             label="Normal Maps",
             description="Normal map images.",
             semantic="image",
-            value="{nodeCacheFolder}/<VIEW_ID>.png",
+            value=lambda attr: "{nodeCacheFolder}/<VIEW_ID>." + (
+                "exr" if attr.node.outputFormat.value == "exr" else "png"),
             group="",
         ),
         desc.File(
@@ -272,6 +282,9 @@ class LINOUniPS(desc.Node):
             else:
                 chunk.logger.info("  Weights: (will download from HuggingFace)")
 
+            output_format = chunk.node.outputFormat.value
+            ext = ".exr" if output_format == "exr" else ".png"
+
             run_sfm_inference(
                 sfm_path=input_sfm,
                 output_folder=output_folder,
@@ -282,6 +295,7 @@ class LINOUniPS(desc.Node):
                 use_cuda=use_cuda,
                 task_name="Real",
                 weights_path=weights_path,
+                output_format=output_format,
             )
 
             chunk.logger.info("Inference done.")
@@ -292,7 +306,7 @@ class LINOUniPS(desc.Node):
             # Create output SfMData for normal maps
             self._create_output_sfm(
                 sfm_data, output_folder,
-                "normalMaps", ".png", chunk.logger,
+                "normalMaps", ext, chunk.logger,
                 downscale=chunk.node.downscale.value)
 
         finally:
