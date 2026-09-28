@@ -1,0 +1,38 @@
+[project]
+name = "mrLINOUniPS"
+version = "1.0.0"
+description = "Universal photometric stereo using a light-invariant normal estimator."
+authors = [ { name = "Baptiste Brument" } ]
+requires-python = ">=3.10,<3.12"
+
+dependencies = [
+    "torch",
+    "torchvision",
+    "psutil",
+    "lino_unips"
+]
+
+[tool.meshroom]
+publisher = "meshroomHub"
+requirements = "Nvidia GPU with CUDA >= 12.X (Ampere or newer recommended for bfloat16 support)."
+
+# If you prefer to work from a local LINO-UniPS:
+# env = [ { key = "LINO_UNIPS_PATH", type = "path", value = "/path/to/LINO_UniPS" } ]
+
+[[tool.meshroom.assets]]
+name = "LINO-UniPS_pretrained_weights"
+category = "Weights"
+path = "weights/lino.pth"
+url = "https://huggingface.co/houyuanchen/lino/resolve/main/lino.pth"
+sha256 = "7b422cb73474e74758907b5cfd8585b5fe2ffc87a84d79bb3dadb20a49134fb1"
+sizeMB = 354
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+lino_unips = { git = "https://github.com/meshroomHubWarehouse/LINO_UniPS.git", branch = "meshroom" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
