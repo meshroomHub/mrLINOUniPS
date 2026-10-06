@@ -5,6 +5,9 @@ import os
 from meshroom.core import desc
 from meshroom.core.utils import VERBOSE_LEVEL
 
+# Minimum number of views (illuminations) for a pose to be used for photometric stereo
+MIN_VIEWS_PER_POSE = 3
+
 
 class LINOUniPS(desc.Node):
     """
@@ -25,6 +28,9 @@ class LINOUniPS(desc.Node):
     **Inputs:**
     - SfMData JSON with views grouped by poseId (multi-lighting)
     - Optional mask folder (masks named by poseId or viewId)
+
+    Poses with fewer than 3 views are not multi-lighting poses (e.g. photogrammetry
+    views sharing the same SfMData): they are ignored.
 
     **Processing:**
     - Images are cropped around masks internally for efficiency
@@ -158,6 +164,36 @@ class LINOUniPS(desc.Node):
                 if key in view:
                     view[key] = str(int(int(float(str(view[key]))) / f))
 
+    @staticmethod
+    def _filter_photometric_poses(sfm, logger):
+        """Keep only the poses seen under several illuminations.
+
+        CameraInit groups the images of a "PS_*" folder under a single poseId, while
+        any other view (e.g. a photogrammetry image) has its own pose: poses with
+        fewer than MIN_VIEWS_PER_POSE views are dropped, so that a mixed multi-view /
+        multi-light SfMData can be used as is.
+        """
+        from collections import Counter
+        views = sfm.get("views", [])
+        nb_views_per_pose = Counter(str(v.get("poseId", "")) for v in views)
+        kept = {pose_id for pose_id, nb in nb_views_per_pose.items()
+                if nb >= MIN_VIEWS_PER_POSE}
+        if not kept:
+            raise RuntimeError(
+                "No pose with at least {} views in the input SfMData: "
+                "no multi-lighting data.".format(MIN_VIEWS_PER_POSE))
+
+        nb_ignored = len(nb_views_per_pose) - len(kept)
+        if nb_ignored:
+            logger.info(
+                "Ignoring {} pose(s) with fewer than {} views "
+                "(not multi-lighting poses).".format(
+                    nb_ignored, MIN_VIEWS_PER_POSE))
+        sfm["views"] = [v for v in views if str(v.get("poseId", "")) in kept]
+        sfm["poses"] = [p for p in sfm.get("poses", [])
+                        if str(p.get("poseId", "")) in kept]
+        return sfm
+
     def _create_output_sfm(self, sfm_data, output_folder,
                            map_type, suffix, logger, downscale=1):
         """Create an output SfMData JSON that references generated map files."""
@@ -172,6 +208,11 @@ class LINOUniPS(desc.Node):
             if view_id == pose_id:
                 map_path = os.path.join(output_folder,
                                         "{}{}".format(pose_id, suffix))
+                if not os.path.isfile(map_path):
+                    logger.warning(
+                        "No {} for pose {}: not referenced in the output "
+                        "SfMData.".format(map_type, pose_id))
+                    continue
                 view["path"] = map_path
                 representative_views.append(view)
 
@@ -285,8 +326,15 @@ class LINOUniPS(desc.Node):
             output_format = chunk.node.outputFormat.value
             ext = ".exr" if output_format == "exr" else ".png"
 
+            # Keep the multi-lighting poses only
+            sfm_data = self._filter_photometric_poses(
+                load_sfm(input_sfm), chunk.logger)
+            ps_sfm = os.path.join(output_folder, "photometricStereoViews.sfm")
+            with open(ps_sfm, "w") as f:
+                json.dump(sfm_data, f, indent=4)
+
             run_sfm_inference(
-                sfm_path=input_sfm,
+                sfm_path=ps_sfm,
                 output_folder=output_folder,
                 mask_folder=mask_folder if mask_folder else None,
                 mask_output_folder=chunk.node.outputMaskFolder.value,
@@ -299,9 +347,6 @@ class LINOUniPS(desc.Node):
             )
 
             chunk.logger.info("Inference done.")
-
-            # Load SfM data for output SfMData generation
-            sfm_data = load_sfm(input_sfm)
 
             # Create output SfMData for normal maps
             self._create_output_sfm(
