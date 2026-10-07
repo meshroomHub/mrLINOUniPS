@@ -390,6 +390,30 @@ def test_process_poses_failures(tmp_path):
         ps.processPoses(FakeChunk(FakeNode(cache, inputSfm=sfmPath)), alwaysFail)
 
 
+def test_process_poses_without_normals(tmp_path):
+    """Methods computing only other maps (e.g. SDM-UniPS BRDF): support = pose mask, no normal output."""
+    cache = tmp_path / "cache"
+    node = FakeNode(cache, inputSfm=_scene(tmp_path))
+    node.outputSfmDataAlbedo = _Value(str(cache / "albedoMaps.sfm"))
+
+    def albedoOnly(images, mask):
+        return {"albedo": np.full(images[0].shape, 0.5, np.float32)}
+    ps.processPoses(FakeChunk(node), albedoOnly, extraMaps=("albedo",), withNormals=False)
+    assert not (cache / "normalMaps.sfm").exists() and not (cache / "100.png").exists()
+    out = json.loads((cache / "albedoMaps.sfm").read_text())
+    assert sorted(v["viewId"] for v in out["views"]) == ["100", "200"]
+    mask = cv2.imread(str(cache / "masks" / "100.png"), cv2.IMREAD_UNCHANGED) > 0
+    albedo = cv2.imread(str(cache / "albedo" / "100.png"), cv2.IMREAD_UNCHANGED)
+    assert mask.sum() == 10 * 14 and np.all(albedo[mask] == 32768) and not albedo[~mask].any()
+
+
+def test_output_attributes_enabled():
+    outputs = {a.name: a for a in ps.outputAttributes(extraMaps=("albedo",), normalEnabled=False,
+                                                      extraEnabled=lambda node: True)}
+    assert outputs["normalMaps"].enabled is False and outputs["outputSfmDataNormal"].enabled is False
+    assert callable(outputs["albedoMaps"].enabled) and outputs["outputMaskFolder"].enabled is True
+
+
 def test_process_poses_selection_reproducible(tmp_path):
     seen = []
 

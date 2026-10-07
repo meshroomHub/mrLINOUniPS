@@ -225,8 +225,12 @@ def mapExtension(node):
     return ".exr" if node.outputFormat.value == "exr" else ".png"
 
 
-def outputAttributes(extraMaps=()):
-    """Outputs shared by the photometric stereo nodes, plus one SfMData and one image output per extra map."""
+def outputAttributes(extraMaps=(), normalEnabled=True, extraEnabled=True):
+    """Outputs shared by the photometric stereo nodes, plus one SfMData and one image output per extra map.
+
+    normalEnabled / extraEnabled: bool or function(node) -> bool, to disable the outputs of the maps a node
+    does not compute with its current settings.
+    """
     outputs = [
         desc.File(
             name="outputFolder",
@@ -240,6 +244,7 @@ def outputAttributes(extraMaps=()):
             label="Normal Maps SfMData",
             description="SfMData referencing the normal maps (one view per pose).",
             value="{nodeCacheFolder}/normalMaps.sfm",
+            enabled=normalEnabled,
         ),
         desc.File(
             name="normalMaps",
@@ -248,6 +253,7 @@ def outputAttributes(extraMaps=()):
             semantic="image",
             value=lambda attr: "{nodeCacheFolder}/<VIEW_ID>" + mapExtension(attr.node),
             commandLineGroup="",
+            enabled=normalEnabled,
         ),
         desc.File(
             name="outputMaskFolder",
@@ -271,6 +277,7 @@ def outputAttributes(extraMaps=()):
             label=label + " Maps SfMData",
             description="SfMData referencing the {} maps (one view per pose).".format(mapName),
             value="{{nodeCacheFolder}}/{}Maps.sfm".format(mapName),
+            enabled=extraEnabled,
         ))
         outputs.append(desc.File(
             name=mapName + "Maps",
@@ -279,6 +286,7 @@ def outputAttributes(extraMaps=()):
             semantic="image",
             value=(lambda name: lambda attr: "{nodeCacheFolder}/" + name + "/<VIEW_ID>" + mapExtension(attr.node))(mapName),
             commandLineGroup="",
+            enabled=extraEnabled,
         ))
     return outputs
 
@@ -743,7 +751,7 @@ def seedEverything(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def processPoses(chunk, predict, extraMaps=(), cleanup=None):
+def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
     """Run a photometric stereo method on every multi-lighting pose of the node input.
 
     Args:
@@ -752,6 +760,7 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None):
             images a list of float32 RGB H x W x 3 arrays and mask a bool H x W array (all True without mask).
         extraMaps: names of the other maps returned by predict (written to <outputFolder>/<map>/).
         cleanup: optional function called after each pose (e.g. to free the GPU memory).
+        withNormals: False when predict returns no normals: the support of the maps is then the pose mask.
     """
     logger = chunk.logger
     params = Params(chunk.node)
@@ -767,6 +776,7 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None):
 
     extension = ".exr" if params.outputFormat == "exr" else ".png"
     mapPaths = {name: {} for name in ("normal",) + tuple(extraMaps)}
+    processed = []
     failed = []
     for index, (poseId, views) in enumerate(poses.items()):
         start = time.time()
@@ -787,22 +797,25 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None):
 
             seedEverything(seed)
             maps = predict(images, mask if mask is not None else np.ones((height, width), bool))
-            normal = maps["normal"]
-            if normal.shape != (height, width, 3):
-                raise RuntimeError("the method returned normals of shape {} for images of shape {}".format(
-                    normal.shape, (height, width, 3)))
-            normal, support = finalizeNormals(normal, mask)
-
-            normalPath = os.path.join(outputFolder, poseId + extension)
-            writeMap(normalPath, toConvention(normal, params.normalConvention), params.outputFormat, signed=True)
+            if withNormals:
+                normal = maps["normal"]
+                if normal.shape != (height, width, 3):
+                    raise RuntimeError("the method returned normals of shape {} for images of shape {}".format(
+                        normal.shape, (height, width, 3)))
+                normal, support = finalizeNormals(normal, mask)
+                normalPath = os.path.join(outputFolder, poseId + extension)
+                writeMap(normalPath, toConvention(normal, params.normalConvention), params.outputFormat, signed=True)
+                mapPaths["normal"][poseId] = normalPath
+            else:
+                support = mask if mask is not None else np.ones((height, width), bool)
             writeMask(os.path.join(params.outputMaskFolder, poseId + ".png"), support)
-            mapPaths["normal"][poseId] = normalPath
             for name in extraMaps:
                 values = np.asarray(maps[name], np.float32)
                 values = values * support.reshape(support.shape + (1,) * (values.ndim - 2))
                 path = os.path.join(outputFolder, name, poseId + extension)
                 writeMap(path, values, params.outputFormat, signed=False)
                 mapPaths[name][poseId] = path
+            processed.append(poseId)
             logger.info("Pose {}: done in {:.1f}s ({:.1f}% of the image with normals)".format(
                 poseId, time.time() - start, 100.0 * support.mean()))
         except Exception as exc:
@@ -812,12 +825,12 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None):
             if cleanup:
                 cleanup()
 
-    sfmOutputs = {"normal": chunk.node.outputSfmDataNormal.value}
+    sfmOutputs = {"normal": chunk.node.outputSfmDataNormal.value} if withNormals else {}
     for name in extraMaps:
         sfmOutputs[name] = getattr(chunk.node, "outputSfmData" + name.capitalize()).value
     for name, sfmPath in sfmOutputs.items():
         saveSfm(buildOutputSfm(sfm, mapPaths[name], params.downscale, params.keepLandmarks), sfmPath)
         logger.info("Saved {} ({} pose(s))".format(sfmPath, len(mapPaths[name])))
 
-    logger.info("{} of {} pose(s) processed.".format(len(mapPaths["normal"]), len(poses)))
-    checkFailurePolicy(params.failurePolicy, len(mapPaths["normal"]), failed)
+    logger.info("{} of {} pose(s) processed.".format(len(processed), len(poses)))
+    checkFailurePolicy(params.failurePolicy, len(processed), failed)
