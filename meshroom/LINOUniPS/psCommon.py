@@ -247,7 +247,7 @@ def outputAttributes(extraMaps=()):
             description="Normal maps.",
             semantic="image",
             value=lambda attr: "{nodeCacheFolder}/<VIEW_ID>" + mapExtension(attr.node),
-            group="",
+            commandLineGroup="",
         ),
         desc.File(
             name="outputMaskFolder",
@@ -261,7 +261,7 @@ def outputAttributes(extraMaps=()):
             description="Pose masks.",
             semantic="image",
             value="{nodeCacheFolder}/masks/<VIEW_ID>.png",
-            group="",
+            commandLineGroup="",
         ),
     ]
     for mapName in extraMaps:
@@ -278,7 +278,7 @@ def outputAttributes(extraMaps=()):
             description=label + " maps.",
             semantic="image",
             value=(lambda name: lambda attr: "{nodeCacheFolder}/" + name + "/<VIEW_ID>" + mapExtension(attr.node))(mapName),
-            group="",
+            commandLineGroup="",
         ))
     return outputs
 
