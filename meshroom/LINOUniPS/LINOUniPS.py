@@ -1,367 +1,132 @@
-__version__ = "1.0"
+__version__ = "2.0"
 
-import json
 import os
-from meshroom.core import desc
-from meshroom.core.utils import VERBOSE_LEVEL
 
-# Minimum number of views (illuminations) for a pose to be used for photometric stereo
-MIN_VIEWS_PER_POSE = 3
+from meshroom.core import desc
+
+from . import psCommon
 
 
 class LINOUniPS(desc.Node):
-    """
-    Multi-view photometric stereo normal estimation using LINO_UniPS.
-
-    Reads an SfMData JSON with multi-lighting views grouped by poseId,
-    runs normal estimation per pose, and outputs normal maps with an
-    output JSON referencing all results.
-    """
+    """Multi-view photometric stereo normal estimation with LINO-UniPS."""
 
     category = "Photometric Stereo"
     gpu = desc.Level.INTENSIVE
     size = desc.DynamicNodeSize("inputSfm")
 
     documentation = """
-    Estimate surface normals from multi-lighting images using LINO_UniPS.
+Estimate one normal map per multi-lighting pose with LINO-UniPS (universal photometric stereo: unknown lighting).
 
-    **Inputs:**
-    - SfMData JSON with views grouped by poseId (multi-lighting)
-    - Optional mask folder (masks named by poseId or viewId)
+**Inputs:** an SfMData where the lighting images of a pose share the same poseId (as created by CameraInit for
+multi-lighting folders), e.g. the undistorted images of ExportImages. Poses with fewer than 'Min Views Per Pose'
+views (photogrammetry images) are ignored, so a mixed multi-view / multi-light SfMData can be used as is.
 
-    Poses with fewer than 3 views are not multi-lighting poses (e.g. photogrammetry
-    views sharing the same SfMData): they are ignored.
+**Masks:** from a mask folder (<poseId>.png or <viewId>.png) or from the alpha channel of the images; the
+per-image masks of a pose are combined by vote ('Mask Vote Threshold').
 
-    **Processing:**
-    - Images are cropped around masks internally for efficiency
-    - Normal maps are uncropped back to full resolution transparently
+**Outputs:** one normal map per pose (<poseId>.png|exr, OpenGL camera frame by default), the pose masks
+(masks/<poseId>.png: pixels with a normal) and an SfMData referencing the normal maps (one view per pose, with the
+intrinsics scaled by the downscale factor), ready for RNb-NeuS2.
 
-    **Outputs:**
-    - Normal map PNGs (16-bit) per pose
-    - JSON file mapping poseIds to normal map paths
-    """
+The data handling (SfMData, image selection, masks, outputs) is common to the LINOUniPS, UniMSPS and SDMUniPS
+nodes; see the advanced options.
+"""
 
-    inputs = [
-        desc.File(
-            name="inputSfm",
-            label="Input SfMData",
-            description="SfMData JSON file with multi-lighting views "
-                        "grouped by poseId.",
-            value="",
-        ),
-        desc.File(
-            name="maskFolder",
-            label="Mask Folder",
-            description="Folder with mask PNGs named by poseId or viewId "
-                        "(e.g. '12345.png'). Optional.",
-            value="",
+    inputs = psCommon.inputAttributes() + [
+        desc.IntParam(
+            name="cropMargin",
+            label="Crop Margin",
+            description="Margin (pixels) around the bounding box of the mask. The whole image is processed when the "
+                        "box is closer than this margin to the image border.",
+            value=8,
+            range=(0, 256, 1),
+            advanced=True,
         ),
         desc.IntParam(
-            name="downscale",
-            label="Downscale Factor",
-            description="Integer downscale factor for input images "
-                        "(1 = original, 2 = half, 4 = quarter).",
-            value=1,
-            range=(1, 8, 1),
-        ),
-        desc.IntParam(
-            name="nbImages",
-            label="Number of Images",
-            description="Number of lighting images per pose to use "
-                        "(-1 = all).",
-            value=-1,
-            range=(-1, 200, 1),
-        ),
-        desc.BoolParam(
-            name="useGpu",
-            label="Use GPU",
-            description="Use GPU for inference.",
-            value=True,
-            invalidate=False,
+            name="maxProcessingSize",
+            label="Max Processing Size",
+            description="Maximum side of the square network input: the crop is resized to "
+                        "max(512, min(Max Processing Size, floor(crop side / 512) * 512)).",
+            value=6000,
+            range=(512, 8192, 512),
+            advanced=True,
         ),
         desc.ChoiceParam(
-            name="outputFormat",
-            label="Output Format",
-            description="Output image format: png16 (16-bit PNG) or "
-                        "exr (float32 EXR for true float normals).",
-            values=["png16", "exr"],
-            value="png16",
+            name="outputInterpolation",
+            label="Output Interpolation",
+            description="Resampling of the network prediction back to the crop size.",
+            value="cubic",
+            values=["area", "linear", "cubic"],
             exclusive=True,
+            advanced=True,
+        ),
+        desc.File(
+            name="modelPath",
+            label="Model",
+            description="LINO-UniPS weights (.pth). If empty: <plugin>/weights/lino.pth, then "
+                        "<LINO_UniPS>/weights/lino.pth, then ~/.cache/torch/hub/checkpoints/lino.pth.",
+            value="",
+            advanced=True,
         ),
         desc.File(
             name="linoUniPsPath",
             label="LINO_UniPS Path",
-            description="Path to LINO_UniPS code directory. "
-                        "Set via config.json key LINO_UNIPS_PATH.",
+            description="LINO_UniPS code directory, used if the package is not installed in the plugin environment.",
             value="${LINO_UNIPS_PATH}",
             advanced=True,
+            invalidate=False,
         ),
-        desc.ChoiceParam(
-            name="verboseLevel",
-            label="Verbose Level",
-            description="Verbosity level for logging.",
-            values=VERBOSE_LEVEL,
-            value="info",
-            exclusive=True,
-        ),
-    ]
+    ] + psCommon.advancedInputAttributes() + psCommon.settingsAttributes()
 
-    outputs = [
-        desc.File(
-            name="outputFolder",
-            label="Output Folder",
-            description="Folder containing normal map PNGs.",
-            value="{nodeCacheFolder}",
-        ),
-        desc.File(
-            name="outputSfmDataNormal",
-            label="SfMData Normal",
-            description="Output SfMData file referencing normal maps.",
-            value="{nodeCacheFolder}/normalMaps.sfm",
-        ),
-        desc.File(
-            name="normalMaps",
-            label="Normal Maps",
-            description="Normal map images.",
-            semantic="image",
-            value=lambda attr: "{nodeCacheFolder}/<VIEW_ID>." + (
-                "exr" if attr.node.outputFormat.value == "exr" else "png"),
-            group="",
-        ),
-        desc.File(
-            name="outputMaskFolder",
-            label="Mask Folder",
-            description="Folder with masks extracted from alpha channels.",
-            value="{nodeCacheFolder}/masks",
-            group="",
-        ),
-    ]
+    outputs = psCommon.outputAttributes()
 
     @staticmethod
-    def _scale_intrinsics(sfm, downscale):
-        """Scale intrinsics and view dimensions to match downscaled images."""
-        if downscale <= 1:
-            return
-        f = float(downscale)
-        for intr in sfm.get("intrinsics", []):
-            for key in ("width", "height"):
-                if key in intr:
-                    intr[key] = str(int(int(float(str(intr[key]))) / f))
-            if "principalPoint" in intr:
-                pp = intr["principalPoint"]
-                intr["principalPoint"] = [
-                    str(float(str(pp[0])) / f),
-                    str(float(str(pp[1])) / f),
-                ]
-            if "pxFocalLength" in intr:
-                pfl = intr["pxFocalLength"]
-                if isinstance(pfl, list):
-                    intr["pxFocalLength"] = [pfl[0] / f, pfl[1] / f]
-                else:
-                    intr["pxFocalLength"] = float(pfl) / f
-        for view in sfm.get("views", []):
-            for key in ("width", "height"):
-                if key in view:
-                    view[key] = str(int(int(float(str(view[key]))) / f))
+    def findWeights(node):
+        if node.modelPath.value:
+            return node.modelPath.value
+        candidates = [os.path.join(os.path.dirname(__file__), "..", "..", "weights", "lino.pth")]
+        if node.linoUniPsPath.evalValue:
+            candidates.append(os.path.join(node.linoUniPsPath.evalValue, "weights", "lino.pth"))
+        candidates.append(os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub", "checkpoints", "lino.pth"))
+        for path in candidates:
+            if os.path.isfile(path):
+                return os.path.abspath(path)
+        raise RuntimeError("LINO-UniPS weights not found, set 'Model' or download them (download_weights.sh). "
+                           "Searched: {}".format(", ".join(candidates)))
 
     @staticmethod
-    def _filter_photometric_poses(sfm, logger):
-        """Keep only the poses seen under several illuminations.
-
-        CameraInit groups the images of a "PS_*" folder under a single poseId, while
-        any other view (e.g. a photogrammetry image) has its own pose: poses with
-        fewer than MIN_VIEWS_PER_POSE views are dropped, so that a mixed multi-view /
-        multi-light SfMData can be used as is.
-        """
-        from collections import Counter
-        views = sfm.get("views", [])
-        nb_views_per_pose = Counter(str(v.get("poseId", "")) for v in views)
-        kept = {pose_id for pose_id, nb in nb_views_per_pose.items()
-                if nb >= MIN_VIEWS_PER_POSE}
-        if not kept:
-            raise RuntimeError(
-                "No pose with at least {} views in the input SfMData: "
-                "no multi-lighting data.".format(MIN_VIEWS_PER_POSE))
-
-        nb_ignored = len(nb_views_per_pose) - len(kept)
-        if nb_ignored:
-            logger.info(
-                "Ignoring {} pose(s) with fewer than {} views "
-                "(not multi-lighting poses).".format(
-                    nb_ignored, MIN_VIEWS_PER_POSE))
-        sfm["views"] = [v for v in views if str(v.get("poseId", "")) in kept]
-        sfm["poses"] = [p for p in sfm.get("poses", [])
-                        if str(p.get("poseId", "")) in kept]
-        return sfm
-
-    def _create_output_sfm(self, sfm_data, output_folder,
-                           map_type, suffix, logger, downscale=1):
-        """Create an output SfMData JSON that references generated map files."""
-        import copy
-        sfm = copy.deepcopy(sfm_data)
-
-        views = sfm.get("views", [])
-        representative_views = []
-        for view in views:
-            view_id = str(view.get("viewId", ""))
-            pose_id = str(view.get("poseId", ""))
-            if view_id == pose_id:
-                map_path = os.path.join(output_folder,
-                                        "{}{}".format(pose_id, suffix))
-                if not os.path.isfile(map_path):
-                    logger.warning(
-                        "No {} for pose {}: not referenced in the output "
-                        "SfMData.".format(map_type, pose_id))
-                    continue
-                view["path"] = map_path
-                representative_views.append(view)
-
-        sfm["views"] = representative_views
-        self._scale_intrinsics(sfm, downscale)
-
-        output_path = os.path.join(output_folder, "{}.sfm".format(map_type))
-        with open(output_path, "w") as f:
-            json.dump(sfm, f, indent=4)
-
-        logger.info("Saved {} to {}".format(map_type, output_path))
-        return output_path
+    def importApi(node):
+        try:
+            import meshroom_predict
+        except ImportError:
+            import sys
+            path = node.linoUniPsPath.evalValue
+            if not path or not os.path.isdir(path):
+                raise RuntimeError("LINO_UniPS is not installed in the plugin environment and 'LINO_UniPS Path' is "
+                                   "invalid: '{}'".format(path))
+            sys.path.insert(0, path)
+            import meshroom_predict
+        return meshroom_predict
 
     def processChunk(self, chunk):
         try:
             chunk.logManager.start(chunk.node.verboseLevel.value)
-
-            # Validate inputs
-            input_sfm = chunk.node.inputSfm.value
-            if not input_sfm:
-                raise RuntimeError("inputSfm is required but empty.")
-            if not os.path.exists(input_sfm):
-                raise RuntimeError(
-                    "Input SfM file not found: {}".format(input_sfm))
-
-            mask_folder = chunk.node.maskFolder.value or ""
-            if mask_folder and not os.path.isdir(mask_folder):
-                chunk.logger.warning(
-                    "Mask folder not found, continuing without masks: {}".format(mask_folder))
-                mask_folder = ""
-
-            # Resolve LINO_UniPS path
-            lino_path = chunk.node.linoUniPsPath.evalValue
-            if not lino_path or not os.path.isdir(lino_path):
-                raise RuntimeError(
-                    "LINO_UNIPS_PATH is empty or not a valid directory. "
-                    "Set it in config.json. Got: '{}'".format(lino_path))
-
-            # Import LINO_UniPS modules (pip install or sys.path fallback)
-            import sys
-            try:
-                from inference_sfm import run_sfm_inference, load_sfm
-                import hubconf
-                import src.models
-                import src.data
-            except ImportError:
-                original_path = sys.path[:]
-                sys.path.insert(0, lino_path)
-                try:
-                    from inference_sfm import run_sfm_inference, load_sfm
-                    import hubconf
-                    import src.models
-                    import src.data
-                except ImportError as e:
-                    raise RuntimeError(
-                        "Failed to import from LINO_UniPS at {}: {}".format(
-                            lino_path, e))
-                finally:
-                    sys.path[:] = original_path
-
-            # Device selection
             import torch
-            use_gpu = chunk.node.useGpu.value
-            use_cuda = use_gpu and torch.cuda.is_available()
-            if use_gpu and not use_cuda:
-                chunk.logger.warning("CUDA not available, falling back to CPU")
+            node = chunk.node
+            api = self.importApi(node)
+            weights = self.findWeights(node)
+            chunk.logger.info("LINO-UniPS weights: {}".format(weights))
+            predictor = api.loadModel(weights, useGpu=node.useGpu.value, logger=chunk.logger)
 
-            # Output folder
-            output_folder = chunk.node.outputFolder.value
-            os.makedirs(output_folder, exist_ok=True)
+            def predict(images, mask):
+                return api.predict(predictor, images, mask, cropMargin=node.cropMargin.value,
+                                   maxProcessingSize=node.maxProcessingSize.value,
+                                   outputInterpolation=node.outputInterpolation.value)
 
-            # Find weights file: plugin dir > algo repo > torch cache
-            weights_path = None
-            plugin_weights = os.path.abspath(os.path.join(
-                os.path.dirname(__file__), '..', '..', 'weights'))
-            search_dirs = [plugin_weights, lino_path]
-            for search_dir in search_dirs:
-                for candidate in ["lino.pth", "lino_unips.pth", "model.pth"]:
-                    p = os.path.join(search_dir, candidate)
-                    if os.path.isfile(p):
-                        weights_path = p
-                        break
-                if not weights_path:
-                    w_dir = os.path.join(search_dir, "weights")
-                    if os.path.isdir(w_dir):
-                        for f in os.listdir(w_dir):
-                            if f.endswith(".pth"):
-                                weights_path = os.path.join(w_dir, f)
-                                break
-                if weights_path:
-                    break
-            if not weights_path:
-                torch_cache = os.path.join(
-                    os.path.expanduser("~"),
-                    ".cache", "torch", "hub", "checkpoints", "lino.pth")
-                if os.path.isfile(torch_cache):
-                    weights_path = torch_cache
+            def cleanup():
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
-            # Run inference
-            chunk.logger.info("Starting LINO_UniPS inference...")
-            chunk.logger.info("  Input SfM: {}".format(input_sfm))
-            chunk.logger.info("  Masks: {}".format(mask_folder or "(none)"))
-            chunk.logger.info("  Downscale: {}".format(
-                chunk.node.downscale.value))
-            chunk.logger.info("  GPU: {}".format(use_cuda))
-            if weights_path:
-                chunk.logger.info("  Weights: {}".format(weights_path))
-            else:
-                chunk.logger.info("  Weights: (will download from HuggingFace)")
-
-            output_format = chunk.node.outputFormat.value
-            ext = ".exr" if output_format == "exr" else ".png"
-
-            # Keep the multi-lighting poses only
-            sfm_data = self._filter_photometric_poses(
-                load_sfm(input_sfm), chunk.logger)
-            ps_sfm = os.path.join(output_folder, "photometricStereoViews.sfm")
-            with open(ps_sfm, "w") as f:
-                json.dump(sfm_data, f, indent=4)
-
-            run_sfm_inference(
-                sfm_path=ps_sfm,
-                output_folder=output_folder,
-                mask_folder=mask_folder if mask_folder else None,
-                mask_output_folder=chunk.node.outputMaskFolder.value,
-                nb_img=chunk.node.nbImages.value,
-                downscale=chunk.node.downscale.value,
-                use_cuda=use_cuda,
-                task_name="Real",
-                weights_path=weights_path,
-                output_format=output_format,
-            )
-
-            chunk.logger.info("Inference done.")
-
-            # Create output SfMData for normal maps
-            self._create_output_sfm(
-                sfm_data, output_folder,
-                "normalMaps", ext, chunk.logger,
-                downscale=chunk.node.downscale.value)
-
+            psCommon.processPoses(chunk, predict, cleanup=cleanup)
         finally:
-            # GPU cleanup
-            try:
-                import gc
-                import torch as _torch
-                gc.collect()
-                if _torch.cuda.is_available():
-                    _torch.cuda.empty_cache()
-            except Exception:
-                pass
             chunk.logManager.end()
