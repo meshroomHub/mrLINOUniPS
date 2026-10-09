@@ -152,6 +152,17 @@ def advancedInputAttributes():
             advanced=True,
         ),
         desc.BoolParam(
+            name="maskPoseReferenceOnly",
+            label="Mask From Pose Reference Image Only",
+            description="Compute the pose mask from the reference image of the pose only (the view whose viewId is "
+                        "the poseId, e.g. the image named 'ambient' in a multi-lighting folder, see CameraInit), "
+                        "instead of a vote over all the images of the pose. Use it when only the reference images "
+                        "were segmented: the alpha channel of the other images then only holds the valid area of "
+                        "the undistortion.",
+            value=False,
+            advanced=True,
+        ),
+        desc.BoolParam(
             name="maskRemoveBorderComponents",
             label="Remove Border Components",
             description="For masks extracted from alpha channels: remove the connected components touching the "
@@ -317,6 +328,7 @@ class Params:
         self.linearizeInput = bool(node.linearizeInput.value)
         self.maskThreshold = float(node.maskThreshold.value)
         self.maskVoteThreshold = float(node.maskVoteThreshold.value)
+        self.maskPoseReferenceOnly = bool(node.maskPoseReferenceOnly.value)
         self.maskRemoveBorderComponents = bool(node.maskRemoveBorderComponents.value)
         self.maskUseGlobalFile = bool(node.maskUseGlobalFile.value)
         self.normalConvention = node.normalConvention.value
@@ -811,7 +823,11 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
             selected = selectViews(lighting, params.nbImages, params.imageSelection, seed)
             images = loadImages(selected, params)
             height, width = images[0].shape[:2]
-            mask, source = computePoseMask(poseId, views, params, logger)
+            if params.maskPoseReferenceOnly:
+                mask, source = computePoseMask(poseId, [representativeView(poseId, views)], params, logger)
+                source += " (pose reference image only)"
+            else:
+                mask, source = computePoseMask(poseId, views, params, logger)
             if mask is not None:
                 mask = resizeMask(mask, (width, height))
                 if not mask.any():

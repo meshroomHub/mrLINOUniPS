@@ -450,6 +450,31 @@ def test_process_poses_exclude_pose_reference_image(tmp_path):
     assert sorted(v["viewId"] for v in out["views"]) == ["100", "200"]  # the reference views hold the poses
 
 
+def test_process_poses_mask_pose_reference_only(tmp_path):
+    """Only the reference images were segmented: the alpha of the other images is the valid area of the
+    undistortion (inside a thin frame, so not removed as a border component) and must not outvote the object."""
+    sfmPath = _scene(tmp_path)
+    sfm = json.loads(open(sfmPath).read())
+    validArea = np.zeros((20, 30), np.uint8)
+    validArea[1:-1, 1:-1] = 255
+    for v in sfm["views"]:
+        if v["viewId"] != v["poseId"]:
+            _writeRgba(v["path"], validArea)
+    seen = []
+
+    def record(images, mask):
+        seen.append(int(mask.sum()))
+        return _flatPredict(images, mask)
+    ps.processPoses(FakeChunk(FakeNode(tmp_path / "a", inputSfm=sfmPath)), record)
+    assert seen == [18 * 28, 18 * 28]  # the vote keeps the valid area
+    seen.clear()
+    node = FakeNode(tmp_path / "b", inputSfm=sfmPath, maskPoseReferenceOnly=True, excludePoseReferenceImage=True)
+    ps.processPoses(FakeChunk(node), record)
+    assert seen == [10 * 14, 10 * 14]
+    masks = [cv2.imread(str(tmp_path / "b" / "masks" / "{}.png".format(p)), cv2.IMREAD_UNCHANGED) for p in ("100", "200")]
+    assert all(int((m > 0).sum()) == 10 * 14 for m in masks)
+
+
 def test_process_poses_selection_reproducible(tmp_path):
     seen = []
 
