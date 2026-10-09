@@ -1,4 +1,6 @@
 __version__ = "2.0"
+__author__ = "Baptiste Brument"
+__license__ = "MPL-2.0"
 
 import os
 
@@ -9,6 +11,14 @@ from . import psCommon
 
 class LINOUniPS(desc.Node):
     """Multi-view photometric stereo normal estimation with LINO-UniPS."""
+
+    # Credits of the wrapped method (shown in the node info, with the plugin author and license)
+    __nodeInfo__ = [
+        ("method", "LINO-UniPS: Light of Normals, Unified Feature Representation for Universal Photometric Stereo "
+                   "(H. Li, H. Chen, C. Ye et al., arXiv:2506.18882, 2025)"),
+        ("methodLicense", "MIT"),
+        ("methodRepository", "https://github.com/houyuanchen111/LINO_UniPS"),
+    ]
 
     category = "Photometric Stereo"
     gpu = desc.Level.INTENSIVE
