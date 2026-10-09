@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mr-lino-unips"
+version = "2.0.0"
+description = "Meshroom plugin for LINO universal photometric stereo"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "psutil",
+    "lino-unips @ git+https://github.com/meshroomHubWarehouse/LINO_UniPS.git@meshroom",
+]
+
+# Meshroom discovers the node from MESHROOM_PLUGINS_PATH, not site-packages.
+# This distribution installs the plugin's dependencies into its venv.
+[tool.setuptools]
+packages = []
