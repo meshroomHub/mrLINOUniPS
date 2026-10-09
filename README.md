@@ -144,7 +144,7 @@ so the principal point becomes `(pp + 0.5) / d - 0.5` (AliceVision puts the cent
 
 If you prefer to work from a local LINO_UniPS clone instead of pip install:
 
-1. Clone the repo: `git clone -b meshroom https://github.com/meshroomHubWarehouse/LINO_UniPS.git`
+1. Clone the repo: `git clone https://github.com/meshroomHubWarehouse/LINO_UniPS.git`
 2. Edit `meshroom/config.json`:
    ```json
    [
