@@ -4,3 +4,7 @@ lib
 lib64
 __pycache__/
 *.pyc
+
+# Packaging / model artefacts
+*.egg-info/
+weights/

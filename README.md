@@ -50,12 +50,14 @@ source venv/bin/activate
 
 pip install --upgrade pip
 pip install torch torchvision
-pip install -r requirements.txt
+pip install -e .
 
 deactivate
 ```
 
-This installs LINO_UniPS and all its dependencies automatically via pip.
+The plugin's `pyproject.toml` installs LINO_UniPS and its dependencies. Meshroom
+still discovers the node from this repository via `MESHROOM_PLUGINS_PATH`;
+`requirements.txt` is retained for older installation workflows.
 
 ### 3. Download pretrained weights
 
@@ -84,22 +86,57 @@ Launch Meshroom: the **LINOUniPS** node appears under **Photometric Stereo**.
 
 ## Node Parameters
 
+The data handling (SfMData, image selection, masks, outputs) is implemented in `psCommon.py`, a common layer shared
+as an identical copy by the LINOUniPS, UniMSPS and SDMUniPS nodes: the three nodes have the same inputs, outputs and
+behaviour, only the network differs.
+
 ### Inputs
 
-| Parameter | Label | Description |
-|-----------|-------|-------------|
-| `inputSfm` | Input SfMData | SfMData JSON file with multi-lighting views grouped by poseId **(required)** |
-| `maskFolder` | Mask Folder | Folder with mask PNGs named by poseId or viewId |
-| `downscale` | Downscale Factor | Integer downscale factor for input images (1-8, default: 1) |
-| `nbImages` | Number of Images | Number of lighting images per pose (-1 = all) |
-| `useGpu` | Use GPU | Use GPU for inference (default: true) |
+| Parameter | Label | Default | Description |
+|-----------|-------|---------|-------------|
+| `inputSfm` | SfMData | | SfMData whose views sharing a poseId are the lighting images of a pose (e.g. ExportImages output) **(required)** |
+| `maskFolder` | Mask Folder | | Masks `<poseId>.png` (one per pose) or `<viewId>.png` (one per image, combined by vote); alpha channels otherwise |
+| `downscale` | Downscale Factor | 1 | Integer downscale factor of the images (and of the output maps and intrinsics) |
+| `nbImages` | Number Of Images | -1 | Maximum number of lighting images per pose (-1: all); the GPU memory grows with it |
+| `outputFormat` | Output Format | `png16` | `png16` (16-bit PNG, (n + 1) / 2) or `exr` (float32) |
+| `useGpu` | Use GPU | true | Use the GPU (CPU otherwise) |
+
+Advanced inputs, common to the three nodes:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `minViewsPerPose` | 3 | Minimum number of views of a pose to process it (photogrammetry views are ignored) |
+| `imageSelection` | `random` | Choice of the images when `nbImages` is lower than the number of images: `random`, `uniform`, `first` |
+| `seed` | 42 | Seed of the random selection and of the network, combined with the poseId (reproducible per pose) |
+| `linearizeInput` | false | Convert 8/16-bit images from sRGB to linear values |
+| `maskThreshold` | 0.5 | Binarization of the masks and alpha channels, as a fraction of the value range |
+| `maskVoteThreshold` | 0.5 | A pixel is in the pose mask when the fraction of per-image masks containing it is greater than this value (0.5: strict majority, 1: intersection, 0: union) |
+| `maskRemoveBorderComponents` | true | Remove the alpha mask components touching the image border (valid area of undistorted images) |
+| `maskUseGlobalFile` | false | Use `<maskFolder>/mask.png` for the poses without a specific mask |
+| `normalConvention` | `opengl` | Output frame: `opengl` (x right, y up, z towards the camera, expected by RNb-NeuS2) or `opencv` |
+| `keepLandmarks` | true | Keep the 3D landmarks in the output SfMData |
+| `failurePolicy` | `noPose` | Fail if no pose could be processed (`noPose`), if any pose failed (`anyPose`), or `never` |
+
+Advanced inputs specific to LINO-UniPS:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cropMargin` | 8 | Margin around the mask bounding box (the whole image is used when the box is closer to the border) |
+| `maxProcessingSize` | 6000 | Maximum side of the square network input (multiple of 512) |
+| `outputInterpolation` | `cubic` | Resampling of the prediction back to the crop size: `area`, `linear`, `cubic` |
+| `modelPath` | | Weights; default: `weights/lino.pth` of the plugin, then of LINO_UniPS, then the torch hub cache |
+| `linoUniPsPath` | `${LINO_UNIPS_PATH}` | LINO_UniPS code, used when the package is not installed in the plugin environment |
 
 ### Outputs
 
 | Parameter | Description |
 |-----------|-------------|
-| `outputFolder` | Folder containing normal map PNGs |
-| `outputSfmDataNormal` | SfMData file referencing normal maps |
+| `outputFolder` | Normal maps `<poseId>.png` (or `.exr`), pose masks `masks/<poseId>.png` |
+| `outputSfmDataNormal` | SfMData referencing the normal maps: one view per pose (the view whose viewId is the poseId), intrinsics scaled by `downscale` |
+| `outputMaskFolder` | Pose masks (0/255): the pixels where a normal is defined |
+
+Downscaling keeps the camera model exact: the downscaled pixel `i` averages the input pixels `[i * d, (i + 1) * d)`,
+so the principal point becomes `(pp + 0.5) / d - 0.5` (AliceVision puts the center of pixel `i` at `i`).
 
 ---
 
@@ -131,12 +168,15 @@ mrLINOUniPS/
 │   ├── config.json                # Plugin configuration (optional for dev)
 │   └── LINOUniPS/
 │       ├── __init__.py
-│       └── LINOUniPS.py           # Meshroom node definition
+│       ├── LINOUniPS.py           # Meshroom node definition
+│       └── psCommon.py            # Common photometric stereo layer (identical in mrUniMSPS, mrSDMUniPS)
+├── tests/                         # pytest tests (CPU) + check_real_pose.py (GPU check on a real pose)
 ├── weights/                       # Downloaded model weights
 │   └── lino.pth
 ├── venv/                          # Python virtual environment
 ├── download_weights.sh            # Weight download script
-├── requirements.txt               # Python dependencies (pip install from git)
+├── pyproject.toml                 # Plugin dependency metadata
+├── requirements.txt               # Legacy dependency list
 └── README.md
 ```
 
@@ -151,6 +191,7 @@ For more details on how Meshroom plugins work, see:
 This work is supported by [**DOPAMIn**](https://www.cnrsinnovation.com/actualite/une-seconde-promotion-pour-le-programme-open-7-nouveaux-logiciels-scientifiques-a-valoriser/) (*Diffusion Open de Photogrammetrie par AliceVision/Meshroom pour l'Industrie*), selected in the 2024 cohort of the [**OPEN**](https://www.cnrsinnovation.com/open/) programme run by [CNRS Innovation](https://www.cnrsinnovation.com/). OPEN supports the valorization of open-source scientific software by providing dedicated developer resources, governance expertise, and industry partnership support.
 
 **Lead researcher:** [Jean-Denis Durou](https://cv.hal.science/jean-denis-durou), [IRIT](https://www.irit.fr/) (INP-Toulouse)
+**Co-lead:** [Lilian Calvet](https://fr.linkedin.com/in/lilian-calvet-42b1a689), [Balgrist University Hospital](https://www.balgrist.ch/)
 
 ---
 
