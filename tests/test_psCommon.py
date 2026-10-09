@@ -428,6 +428,28 @@ def test_output_attributes_enabled():
     assert callable(outputs["albedoMaps"].enabled) and outputs["outputMaskFolder"].enabled is True
 
 
+def test_process_poses_exclude_pose_reference_image(tmp_path):
+    """The reference image (viewId == poseId, e.g. an 'ambient' image) is not a lighting image but still gives the
+    pose mask: here only the reference images carry a mask in their alpha channel."""
+    sfmPath = _scene(tmp_path)
+    sfm = json.loads(open(sfmPath).read())
+    for v in sfm["views"]:
+        if v["viewId"] != v["poseId"]:
+            _writeRgba(v["path"], np.full((20, 30), 255, np.uint8))  # opaque alpha: no mask
+    seen = []
+
+    def record(images, mask):
+        seen.append((len(images), int(mask.sum())))
+        return _flatPredict(images, mask)
+    ps.processPoses(FakeChunk(FakeNode(tmp_path / "a", inputSfm=sfmPath, excludePoseReferenceImage=True)), record)
+    assert seen == [(2, 10 * 14), (2, 10 * 14)]
+    seen.clear()
+    ps.processPoses(FakeChunk(FakeNode(tmp_path / "b", inputSfm=sfmPath)), record)
+    assert seen == [(3, 10 * 14), (3, 10 * 14)]
+    out = json.loads((tmp_path / "a" / "normalMaps.sfm").read_text())
+    assert sorted(v["viewId"] for v in out["views"]) == ["100", "200"]  # the reference views hold the poses
+
+
 def test_process_poses_selection_reproducible(tmp_path):
     seen = []
 

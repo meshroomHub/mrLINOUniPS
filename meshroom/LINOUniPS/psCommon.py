@@ -90,6 +90,16 @@ def advancedInputAttributes():
             range=(1, 100, 1),
             advanced=True,
         ),
+        desc.BoolParam(
+            name="excludePoseReferenceImage",
+            label="Exclude Pose Reference Image",
+            description="Exclude the reference image of each pose (the view whose viewId is the poseId, e.g. the "
+                        "image named 'ambient' in a multi-lighting folder, see CameraInit) from the lighting images "
+                        "given to the network. It still contributes to the pose mask and holds the pose in the "
+                        "output SfMData.",
+            value=False,
+            advanced=True,
+        ),
         desc.ChoiceParam(
             name="imageSelection",
             label="Image Selection",
@@ -301,6 +311,7 @@ class Params:
         self.downscale = int(node.downscale.value)
         self.nbImages = int(node.nbImages.value)
         self.minViewsPerPose = int(node.minViewsPerPose.value)
+        self.excludePoseReferenceImage = bool(node.excludePoseReferenceImage.value)
         self.imageSelection = node.imageSelection.value
         self.seed = int(node.seed.value)
         self.linearizeInput = bool(node.linearizeInput.value)
@@ -792,7 +803,12 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
             if representativeView(poseId, views) is None:
                 raise RuntimeError("no view with viewId == poseId to hold the pose in the output SfMData")
             seed = poseSeed(params.seed, poseId)
-            selected = selectViews(views, params.nbImages, params.imageSelection, seed)
+            lighting = views
+            if params.excludePoseReferenceImage:
+                lighting = [v for v in views if str(v.get("viewId")) != poseId]
+                if not lighting:
+                    raise RuntimeError("no lighting image once the pose reference image is excluded")
+            selected = selectViews(lighting, params.nbImages, params.imageSelection, seed)
             images = loadImages(selected, params)
             height, width = images[0].shape[:2]
             mask, source = computePoseMask(poseId, views, params, logger)
@@ -800,8 +816,8 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
                 mask = resizeMask(mask, (width, height))
                 if not mask.any():
                     raise RuntimeError("empty pose mask ({})".format(source))
-            logger.info("Pose {} ({}/{}): {} of {} images, {}x{}, mask: {}".format(
-                poseId, index + 1, len(poses), len(selected), len(views), width, height, source))
+            logger.info("Pose {} ({}/{}): {} of {} lighting images, {}x{}, mask: {}".format(
+                poseId, index + 1, len(poses), len(selected), len(lighting), width, height, source))
 
             seedEverything(seed)
             maps = predict(images, mask if mask is not None else np.ones((height, width), bool))
