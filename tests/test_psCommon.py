@@ -148,6 +148,20 @@ def test_no_mask(tmp_path):
     assert ps.computePoseMask("7", views, params(tmp_path), LOGGER) == (None, "none")
 
 
+def test_rgba_mask_file_uses_nonopaque_alpha(tmp_path):
+    path = tmp_path / "pose.png"
+    rgba = np.full((20, 30, 4), 255, np.uint8)
+    rgba[:, :, 3] = _objectAlpha()
+    assert cv2.imwrite(str(path), rgba)
+    assert ps.readMaskFile(str(path), 0.5).sum() == 10 * 14
+
+    # An opaque RGBA mask still uses its first color channel for compatibility.
+    rgba[:, :, 0] = _objectAlpha()
+    rgba[:, :, 3] = 255
+    assert cv2.imwrite(str(path), rgba)
+    assert ps.readMaskFile(str(path), 0.5).sum() == 10 * 14
+
+
 @pytest.mark.parametrize("d", [2, 3, 4])
 def test_resize_mask_aligned_with_images(d):
     """A downscaled mask must coincide with the same object in the downscaled images (no half-pixel shift)."""

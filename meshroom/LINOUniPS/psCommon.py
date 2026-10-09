@@ -54,8 +54,9 @@ def inputAttributes():
             name="maskFolder",
             label="Mask Folder",
             description="Optional folder of masks named <poseId>.png (one mask per pose) or <viewId>.png (one mask "
-                        "per image, combined by vote). Without mask files, masks are extracted from the alpha "
-                        "channel of the input images.",
+                        "per image, combined by vote). A non-opaque RGBA mask file uses its alpha channel, "
+                        "e.g. an ambient image exported with a SAM3 mask. Without mask files, masks are "
+                        "extracted from the alpha channel of the input images.",
             value="",
         ),
         desc.IntParam(
@@ -603,6 +604,13 @@ def readMaskFile(path, threshold):
     values = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if values is None:
         raise RuntimeError("Cannot read the mask: '{}'".format(path))
+    # ExportImages writes RGB(A) PNGs. When their alpha is not fully opaque,
+    # it is the undistorted object mask; otherwise retain the first-channel
+    # behavior for ordinary grayscale/RGB(A) mask files.
+    if values.ndim == 3 and values.shape[2] == 4:
+        opaque = np.iinfo(values.dtype).max if np.issubdtype(values.dtype, np.integer) else 1.0
+        if np.min(values[:, :, 3]) < opaque:
+            values = values[:, :, 3]
     return binarizeMask(values, threshold)
 
 
