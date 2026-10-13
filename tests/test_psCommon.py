@@ -475,6 +475,49 @@ def test_process_poses_mask_pose_reference_only(tmp_path):
     assert all(int((m > 0).sum()) == 10 * 14 for m in masks)
 
 
+def test_pose_reference_view_id():
+    views = [{"viewId": "11", "path": "/a/DSC_0001_all_leds.png"}, {"viewId": "12", "path": "/a/DSC_0002.png"}]
+    assert ps.poseReferenceViewId("12", views, "") == "12"  # CameraInit convention: viewId == poseId
+    assert ps.poseReferenceViewId("12", views, "ALL_LEDS") == "11"
+    with pytest.raises(RuntimeError):
+        ps.poseReferenceViewId("12", views, "ambient")
+    with pytest.raises(RuntimeError):
+        ps.poseReferenceViewId("12", views, "DSC")
+
+
+def test_process_poses_pose_reference_pattern(tmp_path):
+    """The reference image is found by its filename (e.g. '*_all_leds' exported with its original name), not by
+    viewId == poseId: it is excluded from the lighting images and alone gives the pose mask."""
+    sfmPath = _scene(tmp_path)
+    sfm = json.loads(open(sfmPath).read())
+    validArea = np.zeros((20, 30), np.uint8)
+    validArea[1:-1, 1:-1] = 255
+    for v in sfm["views"]:
+        if v["poseId"] == "900":
+            continue
+        if v["viewId"] == str(int(v["poseId"]) + 10):  # first image of the pose, viewId != poseId
+            reference = tmp_path / "DSC_{}_all_leds.png".format(v["viewId"])
+            os.replace(v["path"], str(reference))
+            v["path"] = str(reference)
+        else:
+            _writeRgba(v["path"], validArea)
+    sfmPath = tmp_path / "renamed.sfm"
+    sfmPath.write_text(json.dumps(sfm))
+    seen = []
+
+    def record(images, mask):
+        seen.append((len(images), int(mask.sum())))
+        return _flatPredict(images, mask)
+    node = FakeNode(tmp_path / "a", inputSfm=str(sfmPath), maskPoseReferenceOnly=True,
+                    excludePoseReferenceImage=True, poseReferencePattern="all_leds")
+    ps.processPoses(FakeChunk(node), record)
+    assert seen == [(2, 10 * 14), (2, 10 * 14)]
+    seen.clear()
+    node = FakeNode(tmp_path / "b", inputSfm=str(sfmPath), maskPoseReferenceOnly=True, excludePoseReferenceImage=True)
+    ps.processPoses(FakeChunk(node), record)
+    assert seen == [(2, 18 * 28), (2, 18 * 28)]  # viewId == poseId: a valid-area image taken as the reference
+
+
 def test_process_poses_selection_reproducible(tmp_path):
     seen = []
 

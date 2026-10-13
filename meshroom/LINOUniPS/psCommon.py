@@ -17,12 +17,13 @@ resolution, with at least "normal": unit normals in the OpenGL camera frame (x r
 camera), zero where undefined.
 """
 
-PS_COMMON_VERSION = "1.0"
+PS_COMMON_VERSION = "1.1"
 
 import copy
 import json
 import math
 import os
+import re
 import time
 import traceback
 
@@ -93,11 +94,21 @@ def advancedInputAttributes():
         desc.BoolParam(
             name="excludePoseReferenceImage",
             label="Exclude Pose Reference Image",
-            description="Exclude the reference image of each pose (the view whose viewId is the poseId, e.g. the "
-                        "image named 'ambient' in a multi-lighting folder, see CameraInit) from the lighting images "
-                        "given to the network. It still contributes to the pose mask and holds the pose in the "
-                        "output SfMData.",
+            description="Exclude the reference image of each pose (see Pose Reference Pattern) from the lighting "
+                        "images given to the network. It still contributes to the pose mask.",
             value=False,
+            advanced=True,
+        ),
+        desc.StringParam(
+            name="poseReferencePattern",
+            label="Pose Reference Pattern",
+            description="Regular expression (case-insensitive) searched in the image filename to find the "
+                        "reference image of each pose, e.g. 'all_leds'. Exactly one image of the pose must match. "
+                        "The filename is the one of the input SfMData: export the images with their original names "
+                        "(ExportImages Naming Mode 'keep'). Empty: the view whose viewId is the poseId (CameraInit "
+                        "gives a multi-lighting folder the viewId of its image named 'ambient').",
+            value="",
+            uidIgnoreValue="",
             advanced=True,
         ),
         desc.ChoiceParam(
@@ -154,9 +165,8 @@ def advancedInputAttributes():
         desc.BoolParam(
             name="maskPoseReferenceOnly",
             label="Mask From Pose Reference Image Only",
-            description="Compute the pose mask from the reference image of the pose only (the view whose viewId is "
-                        "the poseId, e.g. the image named 'ambient' in a multi-lighting folder, see CameraInit), "
-                        "instead of a vote over all the images of the pose. Use it when only the reference images "
+            description="Compute the pose mask from the reference image of the pose only (see Pose Reference "
+                        "Pattern), instead of a vote over all the images of the pose. Use it when only the reference images "
                         "were segmented: the alpha channel of the other images then only holds the valid area of "
                         "the undistortion.",
             value=False,
@@ -323,6 +333,7 @@ class Params:
         self.nbImages = int(node.nbImages.value)
         self.minViewsPerPose = int(node.minViewsPerPose.value)
         self.excludePoseReferenceImage = bool(node.excludePoseReferenceImage.value)
+        self.poseReferencePattern = node.poseReferencePattern.value or ""
         self.imageSelection = node.imageSelection.value
         self.seed = int(node.seed.value)
         self.linearizeInput = bool(node.linearizeInput.value)
@@ -426,6 +437,23 @@ def representativeView(poseId, views):
         if str(view.get("viewId")) == str(poseId):
             return view
     return None
+
+
+def poseReferenceViewId(poseId, views, pattern):
+    """viewId of the reference image of a pose: the view whose image filename matches pattern (regular expression,
+    searched case-insensitively), or the poseId itself if pattern is empty (CameraInit convention).
+
+    Raises:
+        RuntimeError: if pattern matches no image or several images of the pose.
+    """
+    if not pattern:
+        return str(poseId)
+    regex = re.compile(pattern, re.IGNORECASE)
+    matches = [v for v in views if regex.search(os.path.basename(str(v.get("path", ""))))]
+    if len(matches) != 1:
+        raise RuntimeError("{} image(s) of the pose match the pose reference pattern '{}': exactly one is "
+                           "needed".format(len(matches), pattern))
+    return str(matches[0].get("viewId"))
 
 
 def scaledPrincipalPoint(offset, size, downscale):
@@ -815,16 +843,18 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
             if representativeView(poseId, views) is None:
                 raise RuntimeError("no view with viewId == poseId to hold the pose in the output SfMData")
             seed = poseSeed(params.seed, poseId)
+            referenceId = poseReferenceViewId(poseId, views, params.poseReferencePattern)
             lighting = views
             if params.excludePoseReferenceImage:
-                lighting = [v for v in views if str(v.get("viewId")) != poseId]
+                lighting = [v for v in views if str(v.get("viewId")) != referenceId]
                 if not lighting:
                     raise RuntimeError("no lighting image once the pose reference image is excluded")
             selected = selectViews(lighting, params.nbImages, params.imageSelection, seed)
             images = loadImages(selected, params)
             height, width = images[0].shape[:2]
             if params.maskPoseReferenceOnly:
-                mask, source = computePoseMask(poseId, [representativeView(poseId, views)], params, logger)
+                reference = [v for v in views if str(v.get("viewId")) == referenceId]
+                mask, source = computePoseMask(poseId, reference, params, logger)
                 source += " (pose reference image only)"
             else:
                 mask, source = computePoseMask(poseId, views, params, logger)
