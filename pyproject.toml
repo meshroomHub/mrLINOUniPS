@@ -1,21 +1,46 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "mr-lino-unips"
+name = "mrLINOUniPS"
 version = "2.0.0"
-description = "Meshroom plugin for LINO universal photometric stereo"
+description = "Meshroom plugin for LINO universal photometric stereo."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MPL-2.0"}
 authors = [{name = "Baptiste Brument"}]
 dependencies = [
+    "numpy<2", # pyalicevision is built against NumPy 1.x.
+    "torch",
+    "torchvision",
+    "transformers<5", # transformers >= 5 needs torch >= 2.6 ("torch.accelerator").
     "psutil",
-    "lino-unips @ git+https://github.com/meshroomHubWarehouse/LINO_UniPS.git@main",
+    "lino-unips",
 ]
 
 # Meshroom discovers the node from MESHROOM_PLUGINS_PATH, not site-packages.
-# This distribution installs the plugin's dependencies into its venv.
-[tool.setuptools]
-packages = []
+# uv only installs the plugin's dependencies into its venv.
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+lino-unips = { git = "https://github.com/meshroomHubWarehouse/LINO_UniPS.git", branch = "main" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.meshroom]
+publisher = "meshroomHub"
+requirements = "Nvidia GPU with CUDA >= 12.X (Ampere or newer recommended for bfloat16 support)."
+
+# If you prefer to work from a local LINO_UniPS
+# env = [ { key = "LINO_UNIPS_PATH", type = "path", value = "/path/to/LINO_UniPS" } ]
+
+[[tool.meshroom.assets]]
+name = "LINO-UniPS_pretrained_weights"
+category = "Weights"
+path = "weights/lino.pth"
+url = "https://huggingface.co/houyuanchen/lino/resolve/main/lino.pth"
+sha256 = "7b422cb73474e74758907b5cfd8585b5fe2ffc87a84d79bb3dadb20a49134fb1"
+sizeMB = 354
