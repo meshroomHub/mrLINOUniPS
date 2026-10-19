@@ -17,7 +17,7 @@ resolution, with at least "normal": unit normals in the OpenGL camera frame (x r
 camera), zero where undefined.
 """
 
-PS_COMMON_VERSION = "1.1"
+PS_COMMON_VERSION = "1.2"
 
 import copy
 import json
@@ -775,7 +775,7 @@ def writeMask(path, mask):
 
 def finalizeNormals(normal, mask):
     """Zero the normals outside the mask and the undefined ones; returns (normals, support mask)."""
-    normal = np.nan_to_num(np.asarray(normal, np.float32))
+    normal = np.nan_to_num(np.asarray(normal, np.float32), nan=0.0, posinf=0.0, neginf=0.0)
     norm = np.linalg.norm(normal, axis=2)
     support = norm > 0.5
     if mask is not None:

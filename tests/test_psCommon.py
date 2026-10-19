@@ -283,6 +283,13 @@ def test_finalize_normals():
     assert np.allclose(out[0, 0], [0, 0, 1]) and not out[0, 1:].any()
 
 
+def test_finalize_normals_non_finite():
+    normal = np.array([[[np.inf, 0, 0], [np.nan, np.nan, np.nan], [0, -np.inf, 0], [0, 0, 1]]], np.float32)
+    out, support = ps.finalizeNormals(normal, None)
+    assert support.tolist() == [[False, False, False, True]]
+    assert np.all(np.isfinite(out)) and not out[0, :3].any()
+
+
 def test_failure_policy():
     ps.checkFailurePolicy("noPose", 1, ["a"])
     ps.checkFailurePolicy("never", 0, ["a"])
