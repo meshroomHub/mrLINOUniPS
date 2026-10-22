@@ -4,10 +4,15 @@ pose of an SfMData and checks the outputs.
 Usage (plugin venv, Meshroom on the PYTHONPATH, run from the plugin root):
     python tests/check_real_pose.py <sfm> <poseId> <outputFolder> [--downscale 2] [--nbImages 10] [--set name=value]
 
+Method options (--set): cropMargin, maxProcessingSize, outputInterpolation, normalModel (normal|pbr) and
+estimateAlbedo (0|1, albedo of the PBR network, weights/lino_pbr.pth).
+
 Checks:
 - output normal map and mask have the downscaled image size, normals are unit or zero,
 - the normals cover the pose mask (alignment of the prediction with the image),
-- frame: on the silhouette, the normals point outwards, with y up (OpenGL), z towards the camera.
+- frame: on the silhouette, the normals point outwards, with y up (OpenGL), z towards the camera,
+- with estimateAlbedo: the albedo map has the normal map size, is zero outside the mask and in [0, 1] inside,
+  and its SfMData has the same views as the normal maps SfMData.
 """
 import argparse
 import glob
@@ -23,19 +28,24 @@ import numpy as np
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_psCommon import FakeChunk, FakeNode, ps  # noqa: E402
+from test_LINOUniPS import lino  # noqa: E402
 
 
 def makePredict(node, extra):
-    """Method-specific part: LINO-UniPS."""
+    """Method-specific part: LINO-UniPS (normal and/or PBR network, as the node)."""
     import torch
     import meshroom_predict as api
-    predictor = api.loadModel(os.path.join(ROOT, "weights", "lino.pth"), useGpu=True)
-
-    def predict(images, mask):
-        return api.predict(predictor, images, mask, cropMargin=int(extra.get("cropMargin", 8)),
-                           maxProcessingSize=int(extra.get("maxProcessingSize", 6000)),
-                           outputInterpolation=extra.get("outputInterpolation", "cubic"))
-    return predict, (), torch.cuda.empty_cache
+    normalModel = extra.get("normalModel", "normal")
+    estimateAlbedo = extra.get("estimateAlbedo", "0").lower() in ("1", "true")
+    predictors = {}
+    for model in lino.requiredModels(normalModel, estimateAlbedo):
+        weights = os.path.join(ROOT, "weights", lino.WEIGHTS_FILES[model])
+        predictors[model] = api.loadModel(weights, useGpu=True, logger=logging.getLogger(), model=model)
+    predict = lino.makePredict(api, predictors, normalModel, estimateAlbedo,
+                               cropMargin=int(extra.get("cropMargin", 8)),
+                               maxProcessingSize=int(extra.get("maxProcessingSize", 6000)),
+                               outputInterpolation=extra.get("outputInterpolation", "cubic"))
+    return predict, lino.EXTRA_MAPS if estimateAlbedo else (), torch.cuda.empty_cache
 
 
 def outwardAgreement(normal, mask):
@@ -95,7 +105,24 @@ def main():
         "meanNormal": normal[support].mean(axis=0).round(3).tolist(),
         "outwardCosine": round(cosine, 3), "boundaryPixels": nbBoundary,
     }
+    if "albedo" in extraMaps:
+        albedo = cv2.imread(os.path.join(args.output, "albedo", args.poseId + ".png"), cv2.IMREAD_UNCHANGED)
+        albedo = albedo[:, :, ::-1].astype(np.float32) / 65535
+        albedoSfm = json.load(open(os.path.join(args.output, "albedoMaps.sfm")))
+        normalSfm = json.load(open(os.path.join(args.output, "normalMaps.sfm")))
+        report.update({
+            "albedoShape": list(albedo.shape[:2]), "albedoOutsideMask": int(albedo[~support].any(axis=1).sum()),
+            "albedoRange": [float(albedo[support].min()), float(albedo[support].max())],
+            "meanAlbedo": albedo[support].mean(axis=0).round(3).tolist(),
+            "albedoSfmViews": sorted(v["viewId"] for v in albedoSfm["views"]),
+            "normalSfmViews": sorted(v["viewId"] for v in normalSfm["views"]),
+        })
     print(json.dumps(report, indent=1))
+    if "albedo" in extraMaps:
+        assert report["albedoShape"] == report["normalShape"]
+        assert report["albedoOutsideMask"] == 0
+        assert report["albedoSfmViews"] == report["normalSfmViews"] == [args.poseId]
+        assert report["albedoRange"][1] > report["albedoRange"][0], "constant albedo"
     assert report["imageShape"] == report["normalShape"]
     assert report["maskCoverage"] > 0.98, "normals do not cover the mask"
     assert report["normalsOutsideMask"] == 0

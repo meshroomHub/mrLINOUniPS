@@ -5,7 +5,7 @@
 ### Meshroom Plugin for LINO_UniPS
 
 <p>
-Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO_UniPS</a> photometric stereo normal estimation directly into your <a href="https://github.com/alicevision/Meshroom">Meshroom</a> photogrammetry pipeline.
+Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO_UniPS</a> photometric stereo normal (and albedo) estimation directly into your <a href="https://github.com/alicevision/Meshroom">Meshroom</a> photogrammetry pipeline.
 </p>
 
 <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS"><img src="https://img.shields.io/badge/Core-LINO__UniPS-green" alt="LINO_UniPS" height="25"></a>
@@ -17,6 +17,10 @@ Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO_UniP
 ## What is LINO_UniPS?
 
 **LINO_UniPS** is a universal photometric stereo method based on a light-invariant normal estimator. It predicts high-quality per-pixel surface normals from multi-lighting images without requiring known light directions. The method leverages diffusion model priors and handles arbitrary numbers of input images with varying illumination conditions.
+
+A second network, **LINO-UniPS PBR** (`lino_pbr.pth`), adds base color, roughness and metallic heads to the same
+features: the node uses its base color as the albedo map of each pose (`Estimate Albedo`), e.g. for the albedo input
+of RNb-NeuS2.
 
 ---
 
@@ -62,17 +66,21 @@ still discovers the node from this repository via `MESHROOM_PLUGINS_PATH`;
 ### 3. Download pretrained weights
 
 ```bash
-bash download_weights.sh
+bash download_weights.sh        # lino.pth: normal model
+bash download_weights.sh pbr    # lino_pbr.pth: PBR model, needed for 'Estimate Albedo' (or 'Normal Model' = pbr)
+bash download_weights.sh all    # both
 ```
 
-This downloads the pretrained model (~338 MB) from HuggingFace into `weights/`:
+This downloads the pretrained models (~338 MB each) from HuggingFace
+([houyuanchen/lino](https://huggingface.co/houyuanchen/lino)) into `weights/`:
 
 ```
 weights/
-└── lino.pth
+├── lino.pth
+└── lino_pbr.pth
 ```
 
-The plugin auto-detects this file. No config.json needed.
+The plugin auto-detects these files. No config.json needed.
 
 ### 4. Register the plugin in Meshroom
 
@@ -87,8 +95,8 @@ Launch Meshroom: the **LINOUniPS** node appears under **Photometric Stereo**.
 ## Node Parameters
 
 The data handling (SfMData, image selection, masks, outputs) is implemented in `psCommon.py`, a common layer shared
-as an identical copy by the LINOUniPS, UniMSPS and SDMUniPS nodes: the three nodes have the same inputs, outputs and
-behaviour, only the network differs.
+as an identical copy by the LINOUniPS, UniMSPS and SDMUniPS nodes: the three nodes share these inputs, outputs and
+behaviour, only the network and its specific options (below) differ.
 
 ### Inputs
 
@@ -100,6 +108,13 @@ behaviour, only the network differs.
 | `nbImages` | Number Of Images | -1 | Maximum number of lighting images per pose (-1: all); the GPU memory grows with it |
 | `outputFormat` | Output Format | `png16` | `png16` (16-bit PNG, (n + 1) / 2) or `exr` (float32) |
 | `useGpu` | Use GPU | true | Use the GPU (CPU otherwise) |
+
+Inputs specific to LINO-UniPS (see [Albedo](#albedo)):
+
+| Parameter | Label | Default | Description |
+|-----------|-------|---------|-------------|
+| `estimateAlbedo` | Estimate Albedo | false | Also output one albedo map per pose: base color of the LINO-UniPS PBR network (`lino_pbr.pth`) |
+| `normalModel` | Normal Model | `normal` | Network of the normals: `normal` (LINO-UniPS, `lino.pth`) or `pbr` (LINO-UniPS PBR, `lino_pbr.pth`) |
 
 Advanced inputs, common to the three nodes:
 
@@ -124,19 +139,44 @@ Advanced inputs specific to LINO-UniPS:
 | `cropMargin` | 8 | Margin around the mask bounding box (the whole image is used when the box is closer to the border) |
 | `maxProcessingSize` | 6000 | Maximum side of the square network input (multiple of 512) |
 | `outputInterpolation` | `cubic` | Resampling of the prediction back to the crop size: `area`, `linear`, `cubic` |
-| `modelPath` | | Weights; default: `weights/lino.pth` of the plugin, then of LINO_UniPS, then the torch hub cache |
+| `modelPath` | | Weights of the normal model; default: `weights/lino.pth` of the plugin, then of LINO_UniPS, then the torch hub cache |
+| `pbrModelPath` | | Weights of the PBR model (albedo or `pbr` normals); default: `weights/lino_pbr.pth`, same search order |
 | `linoUniPsPath` | `${LINO_UNIPS_PATH}` | LINO_UniPS code, used when the package is not installed in the plugin environment |
 
 ### Outputs
 
 | Parameter | Description |
 |-----------|-------------|
-| `outputFolder` | Normal maps `<poseId>.png` (or `.exr`), pose masks `masks/<poseId>.png` |
+| `outputFolder` | Normal maps `<poseId>.png` (or `.exr`), pose masks `masks/<poseId>.png`, albedo maps `albedo/<poseId>.png` (or `.exr`) |
 | `outputSfmDataNormal` | SfMData referencing the normal maps: one view per pose (the view whose viewId is the poseId), intrinsics scaled by `downscale` |
+| `outputSfmDataAlbedo` | With `estimateAlbedo`: SfMData referencing the albedo maps (same views and intrinsics as the normal maps), for the `Albedo Maps SfMData` input of RNb-NeuS2 |
 | `outputMaskFolder` | Pose masks (0/255): the pixels where a normal is defined |
 
 Downscaling keeps the camera model exact: the downscaled pixel `i` averages the input pixels `[i * d, (i + 1) * d)`,
 so the principal point becomes `(pp + 0.5) / d - 0.5` (AliceVision puts the center of pixel `i` at `i`).
+
+### Albedo
+
+With `estimateAlbedo`, the albedo of each pose is the base color predicted by the LINO-UniPS PBR network, in [0, 1]
+(as predicted: no color space conversion), zero outside the pose mask, with the size and format (`png16`: 16-bit
+RGB, `exr`: float32) of the normal maps. Like any photometric stereo albedo under unknown lighting, its scale is
+not physical (RNb-NeuS2 rescales the albedos of the views).
+
+`normalModel` chooses the network of the normals:
+
+| `normalModel` | `estimateAlbedo` | Networks run per pose | Normals | Albedo |
+|---------------|------------------|-----------------------|---------|--------|
+| `normal` (default) | false (default) | LINO-UniPS | LINO-UniPS | |
+| `normal` | true | LINO-UniPS + LINO-UniPS PBR (two passes) | LINO-UniPS | LINO-UniPS PBR |
+| `pbr` | true | LINO-UniPS PBR (one pass) | LINO-UniPS PBR | LINO-UniPS PBR |
+| `pbr` | false | LINO-UniPS PBR | LINO-UniPS PBR | |
+
+The PBR network has the architecture of the normal network plus the base color, roughness and metallic heads, with
+its own weights (all of them differ from `lino.pth`). Its normals are not evaluated on the photometric stereo
+benchmarks by the authors, hence `normal` stays the default.
+
+At their default values, `estimateAlbedo` and `normalModel` do not enter the node UID (and `pbrModelPath` is
+disabled): the LINOUniPS nodes of existing projects keep their UID and computed caches.
 
 ---
 
@@ -151,12 +191,12 @@ If you prefer to work from a local LINO_UniPS clone instead of pip install:
        {"key": "LINO_UNIPS_PATH", "type": "path", "value": "/path/to/LINO_UniPS"}
    ]
    ```
-3. Place `lino.pth` in the LINO_UniPS directory or its `weights/` subdirectory.
+3. Place `lino.pth` (and `lino_pbr.pth`) in the `weights/` subdirectory of LINO_UniPS.
 
-The node searches for weights in this order:
+The node searches for `lino.pth` (and `lino_pbr.pth`) in this order, unless `modelPath` (`pbrModelPath`) is set:
 1. Plugin `weights/` directory
-2. LINO_UniPS code directory (from config.json)
-3. Torch hub cache (`~/.cache/torch/hub/checkpoints/lino.pth`)
+2. `weights/` of the LINO_UniPS code directory (from config.json)
+3. Torch hub cache (`~/.cache/torch/hub/checkpoints/`)
 
 ---
 
@@ -172,7 +212,8 @@ mrLINOUniPS/
 │       └── psCommon.py            # Common photometric stereo layer (identical in mrUniMSPS, mrSDMUniPS)
 ├── tests/                         # pytest tests (CPU) + check_real_pose.py (GPU check on a real pose)
 ├── weights/                       # Downloaded model weights
-│   └── lino.pth
+│   ├── lino.pth
+│   └── lino_pbr.pth
 ├── venv/                          # Python virtual environment
 ├── download_weights.sh            # Weight download script
 ├── pyproject.toml                 # Plugin dependency metadata

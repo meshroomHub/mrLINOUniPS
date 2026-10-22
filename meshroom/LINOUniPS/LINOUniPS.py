@@ -1,4 +1,4 @@
-__version__ = "2.0"
+__version__ = "2.1"
 __author__ = "Baptiste Brument"
 __license__ = "MPL-2.0"
 
@@ -8,9 +8,54 @@ from meshroom.core import desc
 
 from . import psCommon
 
+# Networks: "normal" (LINO-UniPS, normals only) and "pbr" (LINO-UniPS PBR: normals, base color, roughness and
+# metallic from the same features), with their default weights file
+WEIGHTS_FILES = {"normal": "lino.pth", "pbr": "lino_pbr.pth"}
+EXTRA_MAPS = ("albedo",)
+
+
+def requiredModels(normalModel, estimateAlbedo):
+    """Networks run on each pose: the normal model, plus the PBR model for the albedo when it is not the normal
+    model."""
+    models = [normalModel]
+    if estimateAlbedo and normalModel != "pbr":
+        models.append("pbr")
+    return models
+
+
+def uidIgnoredWhen(value, attribute):
+    """Attribute whose given value does not contribute to the node UID: an option added with its default value keeps
+    the UID (and the computed caches) of the existing nodes. desc.BoolParam and desc.ChoiceParam have no
+    'uidIgnoreValue' argument (only desc.StringParam has one): it is set on the description."""
+    attribute._uidIgnoreValue = value
+    return attribute
+
+
+def usesModel(node, model):
+    return model in requiredModels(node.normalModel.value, node.estimateAlbedo.value)
+
+
+def makePredict(api, predictors, normalModel, estimateAlbedo, **options):
+    """psCommon predict(images, mask) function: normals of the normal model and, if estimateAlbedo, the albedo
+    (base color) of the PBR model, from the same network pass when the PBR model also gives the normals.
+
+    Args:
+        api: the meshroom_predict module of LINO_UniPS.
+        predictors: {model: predictor} for the models of requiredModels().
+        options: options of api.predict (cropMargin, maxProcessingSize, outputInterpolation).
+    """
+    def predict(images, mask):
+        maps = api.predict(predictors[normalModel], images, mask, **options)
+        result = {"normal": maps["normal"]}
+        if estimateAlbedo:
+            pbrMaps = maps if normalModel == "pbr" else api.predict(predictors["pbr"], images, mask, **options)
+            result["albedo"] = pbrMaps["albedo"]
+        return result
+    return predict
+
 
 class LINOUniPS(desc.Node):
-    """Multi-view photometric stereo normal estimation with LINO-UniPS."""
+    """Multi-view photometric stereo normal (and albedo) estimation with LINO-UniPS."""
 
     # Credits of the wrapped method (shown in the node info, with the plugin author and license)
     __nodeInfo__ = [
@@ -25,7 +70,8 @@ class LINOUniPS(desc.Node):
     size = desc.DynamicNodeSize("inputSfm")
 
     documentation = """
-Estimate one normal map per multi-lighting pose with LINO-UniPS (universal photometric stereo: unknown lighting).
+Estimate one normal map per multi-lighting pose with LINO-UniPS (universal photometric stereo: unknown lighting),
+and optionally one albedo map per pose with the LINO-UniPS PBR network.
 
 **Inputs:** an SfMData where the lighting images of a pose share the same poseId (as created by CameraInit for
 multi-lighting folders), e.g. the undistorted images of ExportImages. Poses with fewer than 'Min Views Per Pose'
@@ -38,11 +84,37 @@ per-image masks of a pose are combined by vote ('Mask Vote Threshold').
 (masks/<poseId>.png: pixels with a normal) and an SfMData referencing the normal maps (one view per pose, with the
 intrinsics scaled by the downscale factor), ready for RNb-NeuS2.
 
+**Albedo ('Estimate Albedo'):** the base color predicted by the LINO-UniPS PBR network (lino_pbr.pth), in [0, 1],
+zero outside the pose mask: albedo/<poseId>.png|exr (same size and format as the normal maps) and an SfMData
+(albedoMaps.sfm, same views and intrinsics as normalMaps.sfm) for the albedo input of RNb-NeuS2. 'Normal Model'
+chooses the network of the normals: 'pbr' gives the normals and the albedo in one network pass, 'normal' keeps
+the normals of the LINO-UniPS normal model and runs the PBR network as well (two passes per pose).
+
 The data handling (SfMData, image selection, masks, outputs) is common to the LINOUniPS, UniMSPS and SDMUniPS
 nodes; see the advanced options.
 """
 
     inputs = psCommon.inputAttributes() + [
+        uidIgnoredWhen(False, desc.BoolParam(
+            name="estimateAlbedo",
+            label="Estimate Albedo",
+            description="Also estimate one albedo map per pose: the base color predicted by the LINO-UniPS PBR "
+                        "network (lino_pbr.pth), written next to the normal maps (albedo/) with its SfMData, for the "
+                        "albedo input of RNb-NeuS2. Without 'Normal Model' = pbr, the PBR network runs in addition "
+                        "to the normal model (two network passes per pose).",
+            value=False,
+        )),
+        uidIgnoredWhen("normal", desc.ChoiceParam(
+            name="normalModel",
+            label="Normal Model",
+            description="Network predicting the normals:\n"
+                        " - normal: LINO-UniPS (lino.pth), the published normal estimation model.\n"
+                        " - pbr: LINO-UniPS PBR (lino_pbr.pth), trained to predict the normals along with the base "
+                        "color, roughness and metallic: normals and albedo in one network pass.",
+            value="normal",
+            values=list(WEIGHTS_FILES),
+            exclusive=True,
+        )),
         desc.IntParam(
             name="cropMargin",
             label="Crop Margin",
@@ -77,6 +149,17 @@ nodes; see the advanced options.
                         "<LINO_UniPS>/weights/lino.pth, then ~/.cache/torch/hub/checkpoints/lino.pth.",
             value="",
             advanced=True,
+            enabled=lambda node: usesModel(node, "normal"),
+        ),
+        desc.File(
+            name="pbrModelPath",
+            label="PBR Model",
+            description="LINO-UniPS PBR weights (.pth), used for the albedo or the 'pbr' normal model. If empty: "
+                        "<plugin>/weights/lino_pbr.pth, then <LINO_UniPS>/weights/lino_pbr.pth, then "
+                        "~/.cache/torch/hub/checkpoints/lino_pbr.pth (download_weights.sh pbr).",
+            value="",
+            advanced=True,
+            enabled=lambda node: usesModel(node, "pbr"),
         ),
         desc.File(
             name="linoUniPsPath",
@@ -88,21 +171,26 @@ nodes; see the advanced options.
         ),
     ] + psCommon.advancedInputAttributes() + psCommon.settingsAttributes()
 
-    outputs = psCommon.outputAttributes()
+    outputs = psCommon.outputAttributes(extraMaps=EXTRA_MAPS, extraEnabled=lambda node: node.estimateAlbedo.value)
 
     @staticmethod
-    def findWeights(node):
-        if node.modelPath.value:
-            return node.modelPath.value
-        candidates = [os.path.join(os.path.dirname(__file__), "..", "..", "weights", "lino.pth")]
+    def findWeights(node, model="normal"):
+        """Weights of a network ("normal" or "pbr"): the 'Model' / 'PBR Model' input if set, otherwise the first
+        existing default file (plugin weights/, LINO_UniPS weights/, torch hub cache)."""
+        attribute = node.pbrModelPath if model == "pbr" else node.modelPath
+        if attribute.value:
+            return attribute.value
+        fileName = WEIGHTS_FILES[model]
+        candidates = [os.path.join(os.path.dirname(__file__), "..", "..", "weights", fileName)]
         if node.linoUniPsPath.evalValue:
-            candidates.append(os.path.join(node.linoUniPsPath.evalValue, "weights", "lino.pth"))
-        candidates.append(os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub", "checkpoints", "lino.pth"))
+            candidates.append(os.path.join(node.linoUniPsPath.evalValue, "weights", fileName))
+        candidates.append(os.path.join(os.path.expanduser("~"), ".cache", "torch", "hub", "checkpoints", fileName))
         for path in candidates:
             if os.path.isfile(path):
                 return os.path.abspath(path)
-        raise RuntimeError("LINO-UniPS weights not found, set 'Model' or download them (download_weights.sh). "
-                           "Searched: {}".format(", ".join(candidates)))
+        raise RuntimeError("LINO-UniPS {} weights not found, set '{}' or download them (download_weights.sh{}). "
+                           "Searched: {}".format(model, "PBR Model" if model == "pbr" else "Model",
+                                                 " pbr" if model == "pbr" else "", ", ".join(candidates)))
 
     @staticmethod
     def importApi(node):
@@ -124,19 +212,23 @@ nodes; see the advanced options.
             import torch
             node = chunk.node
             api = self.importApi(node)
-            weights = self.findWeights(node)
-            chunk.logger.info("LINO-UniPS weights: {}".format(weights))
-            predictor = api.loadModel(weights, useGpu=node.useGpu.value, logger=chunk.logger)
-
-            def predict(images, mask):
-                return api.predict(predictor, images, mask, cropMargin=node.cropMargin.value,
-                                   maxProcessingSize=node.maxProcessingSize.value,
-                                   outputInterpolation=node.outputInterpolation.value)
+            normalModel, estimateAlbedo = node.normalModel.value, node.estimateAlbedo.value
+            predictors = {}
+            for model in requiredModels(normalModel, estimateAlbedo):
+                weights = self.findWeights(node, model)
+                chunk.logger.info("LINO-UniPS {} weights: {}".format(model, weights))
+                # the model is only passed for the PBR network: the default keeps working with a LINO_UniPS
+                # predict API older than the PBR support
+                options = {"model": model} if model != "normal" else {}
+                predictors[model] = api.loadModel(weights, useGpu=node.useGpu.value, logger=chunk.logger, **options)
+            predict = makePredict(api, predictors, normalModel, estimateAlbedo, cropMargin=node.cropMargin.value,
+                                  maxProcessingSize=node.maxProcessingSize.value,
+                                  outputInterpolation=node.outputInterpolation.value)
 
             def cleanup():
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-            psCommon.processPoses(chunk, predict, cleanup=cleanup)
+            psCommon.processPoses(chunk, predict, extraMaps=EXTRA_MAPS if estimateAlbedo else (), cleanup=cleanup)
         finally:
             chunk.logManager.end()
