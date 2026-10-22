@@ -23,7 +23,7 @@ package = false
 [tool.uv.sources]
 torch = { index = "pytorch-cu121" }
 torchvision = { index = "pytorch-cu121" }
-lino-unips = { git = "https://github.com/meshroomHubWarehouse/LINO_UniPS.git", branch = "main" }
+lino-unips = { git = "https://github.com/meshroomHubWarehouse/LINO_UniPS.git", tag = "weights-v1" }
 
 [[tool.uv.index]]
 name = "pytorch-cu121"
