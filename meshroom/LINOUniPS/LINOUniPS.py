@@ -156,7 +156,7 @@ nodes; see the advanced options.
             label="PBR Model",
             description="LINO-UniPS PBR weights (.pth), used for the albedo or the 'pbr' normal model. If empty: "
                         "<plugin>/weights/lino_pbr.pth, then <LINO_UniPS>/weights/lino_pbr.pth, then "
-                        "~/.cache/torch/hub/checkpoints/lino_pbr.pth (download_weights.sh pbr).",
+                        "~/.cache/torch/hub/checkpoints/lino_pbr.pth.",
             value="",
             advanced=True,
             enabled=lambda node: usesModel(node, "pbr"),
@@ -188,9 +188,9 @@ nodes; see the advanced options.
         for path in candidates:
             if os.path.isfile(path):
                 return os.path.abspath(path)
-        raise RuntimeError("LINO-UniPS {} weights not found, set '{}' or download them (download_weights.sh{}). "
+        raise RuntimeError("LINO-UniPS {} weights not found, set '{}' or download {} (see README). "
                            "Searched: {}".format(model, "PBR Model" if model == "pbr" else "Model",
-                                                 " pbr" if model == "pbr" else "", ", ".join(candidates)))
+                                                 fileName, ", ".join(candidates)))
 
     @staticmethod
     def importApi(node):
