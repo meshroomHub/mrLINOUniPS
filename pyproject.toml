@@ -41,7 +41,7 @@ requirements = "Nvidia GPU with CUDA >= 12.X (Ampere or newer recommended for bf
 name = "LINO-UniPS_pretrained_weights"
 category = "Weights"
 path = "weights/lino.pth"
-url = "https://huggingface.co/houyuanchen/lino/resolve/main/lino.pth"
+url = "https://github.com/meshroomHubWarehouse/LINO_UniPS/releases/download/weights-v1/lino.pth"
 sha256 = "7b422cb73474e74758907b5cfd8585b5fe2ffc87a84d79bb3dadb20a49134fb1"
 sizeMB = 354
 
@@ -49,6 +49,6 @@ sizeMB = 354
 name = "LINO-UniPS_PBR_pretrained_weights"
 category = "Weights"
 path = "weights/lino_pbr.pth"
-url = "https://huggingface.co/houyuanchen/lino/resolve/main/lino_pbr.pth"
+url = "https://github.com/meshroomHubWarehouse/LINO_UniPS/releases/download/weights-v1/lino_pbr.pth"
 sha256 = "b02dd1726093011d47ad2b2390245af7ea0e6c282cc3bf9a20e06a5964c1757a"
 sizeMB = 355
