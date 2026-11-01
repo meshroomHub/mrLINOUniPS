@@ -65,14 +65,20 @@ still discovers the node from this repository via `MESHROOM_PLUGINS_PATH`;
 
 ### 3. Download pretrained weights
 
+When the plugin is installed by Meshroom, the installer downloads the normal and PBR models (~354 MB each) declared
+in `[[tool.meshroom.assets]]` of `pyproject.toml` and checks their sha256. `lino_pbr.pth` is needed for
+'Estimate Albedo' (or 'Normal Model' = pbr). For a manual install:
+
 ```bash
-bash download_weights.sh        # lino.pth: normal model
-bash download_weights.sh pbr    # lino_pbr.pth: PBR model, needed for 'Estimate Albedo' (or 'Normal Model' = pbr)
-bash download_weights.sh all    # both
+URL=https://github.com/meshroomHubWarehouse/LINO_UniPS/releases/download/weights-v1
+mkdir -p weights
+curl -L -o weights/lino.pth $URL/lino.pth
+curl -L -o weights/lino_pbr.pth $URL/lino_pbr.pth
+echo "7b422cb73474e74758907b5cfd8585b5fe2ffc87a84d79bb3dadb20a49134fb1  weights/lino.pth" | sha256sum -c
+echo "b02dd1726093011d47ad2b2390245af7ea0e6c282cc3bf9a20e06a5964c1757a  weights/lino_pbr.pth" | sha256sum -c
 ```
 
-This downloads the pretrained models (~338 MB each) from HuggingFace
-([houyuanchen/lino](https://huggingface.co/houyuanchen/lino)) into `weights/`:
+This is a mirror of the models of [houyuanchen/lino](https://huggingface.co/houyuanchen/lino) on Hugging Face:
 
 ```
 weights/
@@ -211,11 +217,10 @@ mrLINOUniPS/
 │       ├── LINOUniPS.py           # Meshroom node definition
 │       └── psCommon.py            # Common photometric stereo layer (identical in mrUniMSPS, mrSDMUniPS)
 ├── tests/                         # pytest tests (CPU) + check_real_pose.py (GPU check on a real pose)
-├── weights/                       # Downloaded model weights
+├── weights/                       # Model weights (Meshroom asset)
 │   ├── lino.pth
 │   └── lino_pbr.pth
 ├── venv/                          # Python virtual environment
-├── download_weights.sh            # Weight download script
 ├── pyproject.toml                 # Plugin dependency metadata
 ├── requirements.txt               # Legacy dependency list
 └── README.md

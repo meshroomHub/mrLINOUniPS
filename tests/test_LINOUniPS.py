@@ -199,7 +199,7 @@ def touch(path):
 
 def test_find_pbr_weights_default_locations(isolatedWeights):
     node, root = isolatedWeights
-    with pytest.raises(RuntimeError, match="download_weights.sh pbr"):
+    with pytest.raises(RuntimeError, match="pbr weights not found"):
         lino.LINOUniPS.findWeights(node, "pbr")
     hub = touch(root / "home" / ".cache" / "torch" / "hub" / "checkpoints" / "lino_pbr.pth")
     assert lino.LINOUniPS.findWeights(node, "pbr") == hub
