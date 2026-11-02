@@ -552,3 +552,11 @@ def test_downscaled_intrinsics_project_on_downscaled_images(d, size):
     ppSmall = ps.scaledPrincipalPoint(offset, size, d) + (size // d) / 2.0
     predicted = (x - pp) * scale + ppSmall
     assert abs(measured - predicted) < 0.02
+
+
+def test_output_maps_follow_the_pose_in_the_viewer():
+    """Maps are named after the pose: the 2D viewer shows them from any image of the pose."""
+    outputs = {a.name: a for a in ps.outputAttributes(extraMaps=("albedo",))}
+    assert outputs["masks"].value == "{nodeCacheFolder}/masks/<POSE_ID>.png"
+    node = type("Node", (), {"outputFormat": _Value("png")})
+    assert outputs["normalMaps"].value(type("Attr", (), {"node": node})) == "{nodeCacheFolder}/<POSE_ID>.png"

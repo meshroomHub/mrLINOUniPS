@@ -17,7 +17,7 @@ resolution, with at least "normal": unit normals in the OpenGL camera frame (x r
 camera), zero where undefined.
 """
 
-PS_COMMON_VERSION = "1.2"
+PS_COMMON_VERSION = "1.3"
 
 import copy
 import json
@@ -283,7 +283,7 @@ def outputAttributes(extraMaps=(), normalEnabled=True, extraEnabled=True):
             label="Normal Maps",
             description="Normal maps.",
             semantic="image",
-            value=lambda attr: "{nodeCacheFolder}/<VIEW_ID>" + mapExtension(attr.node),
+            value=lambda attr: "{nodeCacheFolder}/<POSE_ID>" + mapExtension(attr.node),
             commandLineGroup="",
             enabled=normalEnabled,
         ),
@@ -298,7 +298,7 @@ def outputAttributes(extraMaps=(), normalEnabled=True, extraEnabled=True):
             label="Masks",
             description="Pose masks.",
             semantic="image",
-            value="{nodeCacheFolder}/masks/<VIEW_ID>.png",
+            value="{nodeCacheFolder}/masks/<POSE_ID>.png",
             commandLineGroup="",
         ),
     ]
@@ -316,7 +316,7 @@ def outputAttributes(extraMaps=(), normalEnabled=True, extraEnabled=True):
             label=label + " Maps",
             description=label + " maps.",
             semantic="image",
-            value=(lambda name: lambda attr: "{nodeCacheFolder}/" + name + "/<VIEW_ID>" + mapExtension(attr.node))(mapName),
+            value=(lambda name: lambda attr: "{nodeCacheFolder}/" + name + "/<POSE_ID>" + mapExtension(attr.node))(mapName),
             commandLineGroup="",
             enabled=extraEnabled,
         ))

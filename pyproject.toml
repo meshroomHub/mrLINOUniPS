@@ -1,6 +1,6 @@
 [project]
 name = "mrLINOUniPS"
-version = "2.0.0"
+version = "2.0.1"
 description = "Meshroom plugin for LINO universal photometric stereo."
 readme = "README.md"
 requires-python = ">=3.10"
