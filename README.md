@@ -1,35 +1,26 @@
-<div align="center">
-
 # mrLINOUniPS
 
-### Meshroom Plugin for LINO-UniPS
+Meshroom plugin for [LINO-UniPS](https://github.com/meshroomHubWarehouse/LINO_UniPS): universal photometric stereo with
+a light-invariant normal estimator (H. Li, H. Chen et al., 2025).
 
-<p>
-Integrate <a href="https://github.com/meshroomHubWarehouse/LINO_UniPS">LINO-UniPS</a> photometric stereo normal (and albedo) estimation directly into your <a href="https://github.com/alicevision/Meshroom">Meshroom</a> photogrammetry pipeline.
-</p>
+LINO-UniPS predicts per-pixel surface normals from multi-lighting images, without known light directions. A second
+network, LINO-UniPS PBR, adds base color, roughness and metallic heads to the same features: the node uses its base
+color as the albedo map of each pose. The node is harmonized with the other photometric stereo plugins (mrSDMUniPS,
+mrUniMSPS, mrLedGetter, through the shared `psCommon.py` layer), and its outputs are ready for RNb-NeuS2:
 
-<a href="https://github.com/meshroomHubWarehouse/LINO_UniPS"><img src="https://img.shields.io/badge/Core-LINO--UniPS-green" alt="LINO-UniPS" height="25"></a>
-
-</div>
-
----
-
-## What is LINO-UniPS?
-
-**LINO-UniPS** is a universal photometric stereo method based on a light-invariant normal estimator. It predicts high-quality per-pixel surface normals from multi-lighting images without requiring known light directions. The method leverages diffusion model priors and handles arbitrary numbers of input images with varying illumination conditions.
-
-A second network, **LINO-UniPS PBR** (`lino_pbr.pth`), adds base color, roughness and metallic heads to the same
-features: the node uses its base color as the albedo map of each pose (`Estimate Albedo`), e.g. for the albedo input
-of RNb-NeuS2.
+| Node | Step | Output |
+|------|------|--------|
+| `LINOUniPS` | Normals per pose, and albedo with *Estimate Albedo* | normal maps, masks, `normalMaps.sfm`, albedo maps, `albedoMaps.sfm` |
 
 ---
 
 ## Requirements
 
-- **[Meshroom](https://github.com/alicevision/Meshroom)** 2026.1 or later (develop branch until its release):
-  Meshroom 2025.1.x has neither the plugin manager nor the `[tool.meshroom]` settings of `pyproject.toml`
-- **NVIDIA GPU** Ampere or newer (compute capability 8.0 or higher, for bfloat16) with a driver supporting CUDA 12.1; older GPUs
-  fail ([#4](https://github.com/meshroomHub/mrLINOUniPS/issues/4)): disable `Use GPU` to run on the CPU (slower)
+- **[Meshroom](https://github.com/alicevision/Meshroom)** 2026.1 or later (develop branch until its release, tested on
+  commit [`edc4b6a2`](https://github.com/alicevision/Meshroom/commit/edc4b6a2)): Meshroom 2025.1.x has neither the plugin
+  manager nor the `[tool.meshroom]` settings of `pyproject.toml`
+- **NVIDIA GPU**, Ampere or newer (compute capability 8.0 or higher, for bfloat16) with a driver supporting CUDA 12.1; on older GPUs,
+  disable *Use GPU* to run on the CPU (slower)
 - **Python** 3.10 or newer
 
 All Python dependencies are declared in [`pyproject.toml`](pyproject.toml): PyTorch (CUDA 12.1) and `lino-unips`, pinned to the
@@ -40,7 +31,7 @@ All Python dependencies are declared in [`pyproject.toml`](pyproject.toml): PyTo
 
 ## Installation
 
-### With the plugin manager
+### 1. Install the plugin
 
 From Meshroom's plugin manager (*Manage Plugins*), or from the command line:
 
@@ -48,10 +39,10 @@ From Meshroom's plugin manager (*Manage Plugins*), or from the command line:
 meshroom_plugins install mrLINOUniPS
 ```
 
-The installer creates the plugin `venv/` with `uv sync` and downloads the normal and PBR models (~354 MB each), declared as assets in
-`pyproject.toml`, checking their SHA-256. The **LINOUniPS** node then appears under the **Photometric Stereo** category.
+The installer creates the plugin `venv/` with `uv sync` and downloads the normal and PBR models (~354 MB each), declared as assets in `pyproject.toml`, checking their SHA-256.
+The `LINOUniPS` node then appears in the *Photometric Stereo* category.
 
-### Manual install (without the plugin manager)
+### 2. Manual install (without the plugin manager)
 
 Requires [uv](https://docs.astral.sh/uv/).
 
@@ -74,25 +65,8 @@ export MESHROOM_PLUGINS_PATH=/path/to/plugins/mrLINOUniPS:$MESHROOM_PLUGINS_PATH
 On Windows (PowerShell): `$env:UV_PROJECT_ENVIRONMENT = "venv"; uv sync`, then
 `$env:MESHROOM_PLUGINS_PATH = "C:\path\to\plugins\mrLINOUniPS"`.
 
-`lino_pbr.pth` is needed for 'Estimate Albedo' (or 'Normal Model' = pbr). The weights mirror the models of
-[houyuanchen/lino](https://huggingface.co/houyuanchen/lino) on Hugging Face; the plugin finds them in `weights/`.
-
-### Working on a local LINO-UniPS clone
-
-The node imports LINO-UniPS from the plugin `venv/`. To run a local clone instead, install it in editable mode in that venv:
-
-```bash
-uv pip install --python venv/bin/python -e /path/to/LINO_UniPS
-```
-
-Updating or reinstalling the plugin from the plugin manager recreates `venv/`: run this command again afterwards.
-`LINO_UNIPS_PATH` (an environment variable, or the `linoUniPsPath` input of the node) is only a fallback: the node uses it when
-LINO-UniPS is not installed in the venv.
-
-The node searches for `lino.pth` (and `lino_pbr.pth`) in this order, unless `modelPath` (`pbrModelPath`) is set:
-1. Plugin `weights/` directory
-2. `weights/` of the LINO-UniPS code directory (`LINO_UNIPS_PATH`)
-3. Torch hub cache (`~/.cache/torch/hub/checkpoints/`)
+`lino_pbr.pth` is needed for *Estimate Albedo* (or *Normal Model* = pbr). The weights mirror the models of
+[houyuanchen/lino](https://huggingface.co/houyuanchen/lino) on Hugging Face.
 
 ---
 
@@ -101,8 +75,8 @@ The node searches for `lino.pth` (and `lino_pbr.pth`) in this order, unless `mod
 `meshroom/linoUniPs.mgt` (*File > New Pipeline > Lino Uni Ps*) runs the structure-from-motion of AliceVision, segments the
 object with SAM 3, exports the undistorted images and estimates the normals with `LINOUniPS`.
 
-It needs [mrSegmentation](https://github.com/meshroomHub/mrSegmentation) (node `ImageSegmentationSam3`), not in the
-plugin registry yet: install it by hand.
+It needs [mrSegmentation](https://github.com/meshroomHub/mrSegmentation) (node `ImageSegmentationSam3`), not in the plugin
+registry yet: install it by hand.
 
 Images: one folder per pose, holding the single-light images and one reference image lit by all the lights, whose
 filename contains `ambient` (CameraInit makes it the pose reference) and `all_leds` (`SfMFilter_1` keeps these images
@@ -111,13 +85,15 @@ to your object.
 
 ---
 
-## Node Parameters
+## Nodes
+
+### `LINOUniPS`
 
 The data handling (SfMData, image selection, masks, outputs) is implemented in `psCommon.py`, a common layer shared
 as an identical copy by the LINOUniPS, UniMSPS and SDMUniPS nodes: the three nodes share these inputs, outputs and
 behaviour, only the network and its specific options (below) differ.
 
-### Inputs
+#### Inputs
 
 | Parameter | Label | Default | Description |
 |-----------|-------|---------|-------------|
@@ -162,7 +138,7 @@ Advanced inputs specific to LINO-UniPS:
 | `pbrModelPath` | | Weights of the PBR model (albedo or `pbr` normals); default: `weights/lino_pbr.pth`, same search order |
 | `linoUniPsPath` | `${LINO_UNIPS_PATH}` | LINO-UniPS code, used when the package is not installed in the plugin environment |
 
-### Outputs
+#### Outputs
 
 | Parameter | Description |
 |-----------|-------------|
@@ -174,7 +150,9 @@ Advanced inputs specific to LINO-UniPS:
 Downscaling keeps the camera model exact: the downscaled pixel `i` averages the input pixels `[i * d, (i + 1) * d)`,
 so the principal point becomes `(pp + 0.5) / d - 0.5` (AliceVision puts the center of pixel `i` at `i`).
 
-### Albedo
+---
+
+## Albedo
 
 With `estimateAlbedo`, the albedo of each pose is the base color predicted by the LINO-UniPS PBR network, in [0, 1]
 (as predicted: no color space conversion), zero outside the pose mask, with the size and format (`png16`: 16-bit
@@ -199,7 +177,9 @@ disabled): the LINOUniPS nodes of existing projects keep their UID and computed 
 
 ---
 
-## Tests
+## Development
+
+### Tests
 
 ```bash
 # unit tests (CPU), from the plugin root
@@ -208,9 +188,25 @@ PYTHONPATH=/path/to/Meshroom venv/bin/python -m pytest tests
 PYTHONPATH=/path/to/Meshroom venv/bin/python tests/check_real_pose.py <sfm> <poseId> <outputFolder> --downscale 2
 ```
 
----
+### Working on a local LINO-UniPS clone
 
-## Plugin Structure
+The node imports LINO-UniPS from the plugin `venv/`. To run a local clone instead, install it in editable mode in that venv:
+
+```bash
+uv pip install --python venv/bin/python -e /path/to/LINO_UniPS
+```
+
+Updating or reinstalling the plugin from the plugin manager recreates `venv/`: run this command again afterwards.
+
+`LINO_UNIPS_PATH` (an environment variable, or the `linoUniPsPath` input of the node) is only a fallback: the node uses
+it when LINO-UniPS is not installed in the venv.
+
+The node searches for `lino.pth` (and `lino_pbr.pth`) in this order, unless `modelPath` (`pbrModelPath`) is set:
+1. Plugin `weights/` directory
+2. `weights/` of the LINO-UniPS code directory (`LINO_UNIPS_PATH`)
+3. Torch hub cache (`~/.cache/torch/hub/checkpoints/`)
+
+### Plugin structure
 
 ```
 mrLINOUniPS/
@@ -254,6 +250,14 @@ This work is supported by [**DOPAMIn**](https://www.cnrsinnovation.com/actualite
 | [mrLedGetter](https://github.com/meshroomHub/mrLedGetter) | Meshroom plugin for LED-getter near-light photometric stereo |
 | [mrRNbNeuS2](https://github.com/meshroomHub/mrRNbNeuS2) | Meshroom plugin for RNb-NeuS2 neural surface reconstruction |
 | [mrOpenRNb](https://github.com/meshroomHub/mrOpenRNb) | Meshroom plugin for Open-RNb neural surface reconstruction |
+
+---
+
+## Citation
+
+- **Light of Normals: Unified Feature Representation for Universal Photometric Stereo**  
+  H. Li, H. Chen et al. (2025)  
+  [arXiv](https://arxiv.org/abs/2506.18882)
 
 ---
 
