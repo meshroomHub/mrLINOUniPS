@@ -32,7 +32,7 @@ explicit = true
 
 [tool.meshroom]
 publisher = "meshroomHub"
-requirements = "Nvidia GPU with CUDA >= 12.X (Ampere or newer recommended for bfloat16 support)."
+requirements = "Nvidia GPU with CUDA >= 12.X, Ampere or newer (compute capability >= 8.0, for bfloat16)."
 
 # If you prefer to work from a local LINO_UniPS
 # env = [ { key = "LINO_UNIPS_PATH", type = "path", value = "/path/to/LINO_UniPS" } ]
