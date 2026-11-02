@@ -1,2 +1,0 @@
-psutil
-lino_unips @ git+https://github.com/meshroomHubWarehouse/LINO_UniPS.git@main
