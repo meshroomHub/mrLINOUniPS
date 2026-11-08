@@ -17,7 +17,7 @@ resolution, with at least "normal": unit normals in the OpenGL camera frame (x r
 camera), zero where undefined.
 """
 
-PS_COMMON_VERSION = "1.3"
+PS_COMMON_VERSION = "1.4"
 
 import copy
 import json
@@ -81,6 +81,17 @@ def inputAttributes():
 
 def advancedInputAttributes():
     """Advanced inputs shared by the photometric stereo nodes: every heuristic of the data handling."""
+    requireLocalizedPoses = desc.BoolParam(
+        name="requireLocalizedPoses",
+        label="Require Localized Poses",
+        description="Process only the multi-lighting poses with a camera pose in the SfMData (e.g. after "
+                    "StructureFromMotion and SfMTransfer). Disable it for photometric stereo without SfM, e.g. "
+                    "directly on the CameraInit images: the normal maps are in the camera frame and need no pose.",
+        value=True,
+        advanced=True,
+    )
+    # added after v1.3 of this layer: its default value keeps the UID of the existing nodes
+    requireLocalizedPoses._uidIgnoreValue = True
     return [
         desc.IntParam(
             name="minViewsPerPose",
@@ -91,6 +102,7 @@ def advancedInputAttributes():
             range=(1, 100, 1),
             advanced=True,
         ),
+        requireLocalizedPoses,
         desc.BoolParam(
             name="excludePoseReferenceImage",
             label="Exclude Pose Reference Image",
@@ -332,6 +344,7 @@ class Params:
         self.downscale = int(node.downscale.value)
         self.nbImages = int(node.nbImages.value)
         self.minViewsPerPose = int(node.minViewsPerPose.value)
+        self.requireLocalizedPoses = bool(node.requireLocalizedPoses.value)
         self.excludePoseReferenceImage = bool(node.excludePoseReferenceImage.value)
         self.poseReferencePattern = node.poseReferencePattern.value or ""
         self.imageSelection = node.imageSelection.value
@@ -402,8 +415,8 @@ def groupViewsByPose(views):
     return {poseId: sorted(group, key=lambda v: v.get("path", "")) for poseId, group in groups.items()}
 
 
-def filterPoses(sfm, minViewsPerPose, logger):
-    """Keep the localized poses with at least minViewsPerPose views.
+def filterPoses(sfm, minViewsPerPose, logger, requireLocalizedPoses=True):
+    """Keep the poses with at least minViewsPerPose views, and with a camera pose if requireLocalizedPoses.
 
     Returns:
         (filtered SfMData dict, {poseId: views sorted by path})
@@ -411,19 +424,20 @@ def filterPoses(sfm, minViewsPerPose, logger):
     groups = groupViewsByPose(sfm.get("views", []))
     localized = {str(p.get("poseId")) for p in sfm.get("poses", [])}
     kept = {poseId: views for poseId, views in groups.items()
-            if len(views) >= minViewsPerPose and poseId in localized}
+            if len(views) >= minViewsPerPose and (poseId in localized or not requireLocalizedPoses)}
     nbFewViews = sum(1 for views in groups.values() if len(views) < minViewsPerPose)
     nbNotLocalized = sum(1 for poseId, views in groups.items()
-                         if len(views) >= minViewsPerPose and poseId not in localized)
+                         if len(views) >= minViewsPerPose and poseId not in localized) if requireLocalizedPoses else 0
     if nbFewViews:
         logger.info("Ignoring {} pose(s) with fewer than {} views (not multi-lighting poses).".format(
             nbFewViews, minViewsPerPose))
     if nbNotLocalized:
-        logger.warning("Ignoring {} multi-lighting pose(s) without a pose in the SfMData (not localized).".format(
-            nbNotLocalized))
+        logger.warning("Ignoring {} multi-lighting pose(s) without a pose in the SfMData (not localized, see "
+                       "'Require Localized Poses').".format(nbNotLocalized))
     if not kept:
-        raise RuntimeError("No localized pose with at least {} views in the input SfMData: no multi-lighting "
-                           "data.".format(minViewsPerPose))
+        raise RuntimeError("No {}pose with at least {} views in the input SfMData: no multi-lighting data{}.".format(
+            "localized " if requireLocalizedPoses else "", minViewsPerPose,
+            " (without SfM, disable 'Require Localized Poses')" if nbNotLocalized else ""))
     out = copy.deepcopy(sfm)
     out["views"] = [v for v in sfm.get("views", []) if str(v.get("poseId")) in kept]
     out["poses"] = [p for p in sfm.get("poses", []) if str(p.get("poseId")) in kept]
@@ -828,7 +842,7 @@ def processPoses(chunk, predict, extraMaps=(), cleanup=None, withNormals=True):
     os.makedirs(outputFolder, exist_ok=True)
 
     sfm = loadSfm(params.inputSfm, outputFolder)
-    sfm, poses = filterPoses(sfm, params.minViewsPerPose, logger)
+    sfm, poses = filterPoses(sfm, params.minViewsPerPose, logger, params.requireLocalizedPoses)
     # multi-lighting views processed by the node (for inspection, without the landmarks)
     saveSfm({k: v for k, v in sfm.items() if k != "structure"}, os.path.join(outputFolder, "photometricStereoViews.sfm"))
     logger.info("{} multi-lighting pose(s) to process.".format(len(poses)))

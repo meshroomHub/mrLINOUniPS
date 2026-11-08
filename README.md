@@ -132,6 +132,7 @@ Advanced inputs, common to the three nodes:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `minViewsPerPose` | 3 | Minimum number of views of a pose to process it (photogrammetry views are ignored) |
+| `requireLocalizedPoses` | true | Process only the poses with a camera pose in the SfMData; false for photometric stereo without SfM (e.g. on the CameraInit output) |
 | `imageSelection` | `random` | Choice of the images when `nbImages` is lower than the number of images: `random`, `uniform`, `first` |
 | `seed` | 42 | Seed of the random selection and of the network, combined with the poseId (reproducible per pose) |
 | `linearizeInput` | false | Convert 8/16-bit images from sRGB to linear values |

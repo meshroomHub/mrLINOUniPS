@@ -326,6 +326,17 @@ def test_filter_poses():
         ps.filterPoses(_sfm(), 5, LOGGER)
 
 
+def test_filter_poses_not_localized():
+    sfm, poses = ps.filterPoses(_sfm(), 3, LOGGER, requireLocalizedPoses=False)
+    assert list(poses) == ["100", "200", "400"]
+    assert {v["poseId"] for v in sfm["views"]} == {"100", "200", "400"}
+    assert [p["poseId"] for p in sfm["poses"]] == ["100", "200"]
+    noPoses = dict(_sfm(), poses=[])
+    with pytest.raises(RuntimeError, match="Require Localized Poses"):
+        ps.filterPoses(noPoses, 3, LOGGER)
+    assert list(ps.filterPoses(noPoses, 3, LOGGER, requireLocalizedPoses=False)[1]) == ["100", "200", "400"]
+
+
 def test_output_sfm():
     sfm, _ = ps.filterPoses(_sfm(), 3, LOGGER)
     out = ps.buildOutputSfm(sfm, {"200": "/out/200.png"}, 2, keepLandmarks=True)
