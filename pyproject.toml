@@ -1,6 +1,6 @@
 [project]
 name = "mrLINOUniPS"
-version = "2.0.3"
+version = "2.0.4"
 description = "Meshroom plugin for LINO universal photometric stereo."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,9 +8,9 @@ license = {text = "MPL-2.0"}
 authors = [{name = "Baptiste Brument"}]
 dependencies = [
     "numpy<2", # pyalicevision is built against NumPy 1.x.
-    "torch",
-    "torchvision",
-    "transformers<5", # transformers >= 5 needs torch >= 2.6 ("torch.accelerator").
+    "torch>=2.7,<2.8", # cu128 wheels: Blackwell (sm_120) support.
+    "torchvision>=0.22,<0.23",
+    "transformers<5", # LINO-UniPS is tested with transformers 4.x.
     "psutil",
     "lino-unips",
 ]
@@ -21,18 +21,18 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torchvision = { index = "pytorch-cu121" }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 lino-unips = { git = "https://github.com/meshroomHubWarehouse/LINO_UniPS.git", tag = "weights-v1" }
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.meshroom]
 publisher = "meshroomHub"
-requirements = "Nvidia GPU with CUDA >= 12.X, Ampere or newer (compute capability >= 8.0, for bfloat16)."
+requirements = "Nvidia GPU with a driver supporting CUDA 12.8 (R570 or newer), Ampere or newer (compute capability >= 8.0, for bfloat16)."
 
 # If you prefer to work from a local LINO_UniPS
 # env = [ { key = "LINO_UNIPS_PATH", type = "path", value = "/path/to/LINO_UniPS" } ]

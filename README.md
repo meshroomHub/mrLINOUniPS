@@ -19,11 +19,11 @@ mrUniMSPS, mrLedGetter, through the shared `psCommon.py` layer), and its outputs
 - **[Meshroom](https://github.com/alicevision/Meshroom)** 2026.1 or later (develop branch until its release, tested on
   commit [`edc4b6a2`](https://github.com/alicevision/Meshroom/commit/edc4b6a2)): Meshroom 2025.1.x has neither the plugin
   manager nor the `[tool.meshroom]` settings of `pyproject.toml`
-- **NVIDIA GPU**, Ampere or newer (compute capability 8.0 or higher, for bfloat16) with a driver supporting CUDA 12.1; on older GPUs,
+- **NVIDIA GPU**, Ampere or newer (compute capability 8.0 or higher, for bfloat16) with a driver supporting CUDA 12.8 (R570 or newer); on older GPUs,
   disable *Use GPU* to run on the CPU (slower)
 - **Python** 3.10 or newer
 
-All Python dependencies are declared in [`pyproject.toml`](pyproject.toml): PyTorch (CUDA 12.1) and `lino-unips`, pinned to the
+All Python dependencies are declared in [`pyproject.toml`](pyproject.toml) and locked in [`uv.lock`](uv.lock): PyTorch 2.7 (CUDA 12.8) and `lino-unips`, pinned to the
 `weights-v1` tag of [meshroomHubWarehouse/LINO_UniPS](https://github.com/meshroomHubWarehouse/LINO_UniPS), a fork of
 [houyuanchen111/LINO_UniPS](https://github.com/houyuanchen111/LINO_UniPS).
 
@@ -239,6 +239,7 @@ mrLINOUniPS/
 │   └── lino_pbr.pth
 ├── venv/                          # Created by the installer or by uv sync
 ├── pyproject.toml                 # Dependencies and Meshroom settings (uv)
+├── uv.lock                        # Locked dependency versions (uv sync --frozen)
 └── README.md
 ```
 
